@@ -111,16 +111,13 @@ class ReaderCreate(BaseModel):
 class QualityAnswer(BaseModel):
     guessed_source: str
     quality_score: int = Field(ge=1, le=5)
-    guess_confidence: int = Field(ge=1, le=5)
 
 
 class DiagnosisAnswer(BaseModel):
     lesion_visible: str
     diagnosis: str
-    malignancy_score: int = Field(ge=0, le=100)
+    malignancy_score: int = Field(ge=1, le=5)
     confidence: int = Field(ge=1, le=5)
-    further_exam: bool
-    exam_type: str | None = None
     lesion_points: list[dict] = Field(default_factory=list)
 
 
