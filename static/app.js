@@ -16,7 +16,7 @@ function dashboard(){show('dashboard');show('tasklist',false);show('reader',fals
 function goList(){show('dashboard',false);show('tasklist');show('reader',false);clearInterval(state.timer);resetImages();loadTasks()}
 async function boot(){
  if(!state.token){try{const demo=await json('/api/demo/initialize',{method:'POST'});state.token=demo.token;sessionStorage.setItem('token',demo.token);state.demo=true;notify('预览数据：扫描 '+demo.import.files+' 例 HDF5');}catch{show('login');show('workspace',false);return}}
- try{const me=await json('/api/me');state.role=me.role;$('who').textContent=me.display_name+' · '+(me.role==='admin'?'管理员':'医生');show('login',false);show('workspace');show('admin',me.role==='admin'&&!state.demo);$('logout').hidden=!!state.demo;dashboard()}
+ try{const me=await json('/api/me');const preview=await json('/api/demo/status');state.demo=preview.enabled;if(state.demo){const prepared=await json('/api/demo/prepare',{method:'POST'});if(prepared.import.errors.length)notify('部分 HDF5 无法导入，请检查容器日志或接口结果');}state.role=me.role;$('who').textContent=state.demo?'本地预览模式':me.display_name+' · '+(me.role==='admin'?'管理员':'医生');show('login',false);show('workspace');show('admin',me.role==='admin'&&!state.demo);$('logout').hidden=!!state.demo;dashboard()}
  catch{sessionStorage.removeItem('token');state.token=null;show('login');show('workspace',false)}
 }
 $('login-form').addEventListener('submit',async e=>{e.preventDefault();try{const u=await json('/api/auth/login',{method:'POST',body:JSON.stringify({username:$('username').value,password:$('password').value})});state.token=u.token;sessionStorage.setItem('token',u.token);$('password').value='';boot()}catch(err){notify(err.message)}});

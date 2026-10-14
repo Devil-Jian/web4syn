@@ -277,10 +277,43 @@ def demo_initialize():
         token = secrets.token_urlsafe(48)
         c.execute("INSERT INTO sessions VALUES (?,?,?)",
                   (hashlib.sha256(token.encode()).hexdigest(), uid, int(time.time()) + SESSION_TTL))
-    user = {"id": uid, "role": "admin"}
-    report = import_packs(user=user)
-    assigned = generate_assignments(user=user)
-    return {"token": token, "name": "本地预览", "role": "admin", "import": report, "assignments": assigned}
+    report = prepare_demo_cases(uid)
+    return {"token": token, "name": "本地预览", "role": "admin", **report}
+
+
+def prepare_demo_cases(uid):
+    report = import_packs(user={"id": uid, "role": "admin"})
+    with db() as c:
+        rows = c.execute("SELECT DISTINCT patient_code,module,source FROM cases ORDER BY patient_code,module,source").fetchall()
+        inserted = 0
+        for row in rows:
+            patient, module, source = row
+            if module == "diagnosis":
+                phases = {x[0] for x in c.execute(
+                    "SELECT phase FROM cases WHERE patient_code=? AND module=? AND source=?",
+                    (patient, module, source))}
+                if "NCCT" not in phases or not (phases & {"AP","PVP","DP"}):
+                    continue
+            before = c.total_changes
+            c.execute("""INSERT OR IGNORE INTO assignments
+                       (user_id,module,case_group,source,public_code,assigned_at)
+                       VALUES(?,?,?,?,?,?)""",
+                      (uid,module,patient,source,"DEMO-" + secrets.token_hex(5).upper(),int(time.time())))
+            inserted += c.total_changes - before
+        audit(c, uid, "demo_prepare", {"created": inserted})
+    return {"import": report, "assignments": {"created": inserted}}
+
+
+@app.get("/api/demo/status")
+def demo_status():
+    return {"enabled": os.getenv("WEB4SYN_DEMO_MODE", "").lower() == "true"}
+
+
+@app.post("/api/demo/prepare")
+def demo_prepare(user=Depends(auth)):
+    if os.getenv("WEB4SYN_DEMO_MODE", "").lower() != "true":
+        raise HTTPException(404, "Not enabled")
+    return prepare_demo_cases(user["id"])
 
 
 @app.get("/api/admin/cases")
