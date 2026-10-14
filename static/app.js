@@ -15,8 +15,8 @@ function resetImages(){state.urls.forEach(URL.revokeObjectURL);state.urls=[];$('
 function dashboard(){show('dashboard');show('tasklist',false);show('reader',false);resetImages()}
 function goList(){show('dashboard',false);show('tasklist');show('reader',false);clearInterval(state.timer);resetImages();loadTasks()}
 async function boot(){
- if(!state.token){show('login');show('workspace',false);return}
- try{const me=await json('/api/me');state.role=me.role;$('who').textContent=me.display_name+' · '+(me.role==='admin'?'管理员':'医生');show('login',false);show('workspace');show('admin',me.role==='admin');dashboard()}
+ if(!state.token){try{const demo=await json('/api/demo/initialize',{method:'POST'});state.token=demo.token;sessionStorage.setItem('token',demo.token);state.demo=true;notify('预览数据：扫描 '+demo.import.files+' 例 HDF5');}catch{show('login');show('workspace',false);return}}
+ try{const me=await json('/api/me');state.role=me.role;$('who').textContent=me.display_name+' · '+(me.role==='admin'?'管理员':'医生');show('login',false);show('workspace');show('admin',me.role==='admin'&&!state.demo);$('logout').hidden=!!state.demo;dashboard()}
  catch{sessionStorage.removeItem('token');state.token=null;show('login');show('workspace',false)}
 }
 $('login-form').addEventListener('submit',async e=>{e.preventDefault();try{const u=await json('/api/auth/login',{method:'POST',body:JSON.stringify({username:$('username').value,password:$('password').value})});state.token=u.token;sessionStorage.setItem('token',u.token);$('password').value='';boot()}catch(err){notify(err.message)}});

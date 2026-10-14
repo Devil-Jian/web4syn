@@ -264,6 +264,25 @@ def import_packs(user=Depends(admin)):
     return report
 
 
+@app.post("/api/demo/initialize")
+def demo_initialize():
+    """LOCAL PREVIEW ONLY. Never enable on internet-exposed deployments."""
+    if os.getenv("WEB4SYN_DEMO_MODE", "").lower() != "true":
+        raise HTTPException(404, "Not enabled")
+    with db() as c:
+        u = c.execute("SELECT id FROM users WHERE username='admin'").fetchone()
+        if not u:
+            raise HTTPException(500, "Admin user missing")
+        uid = u["id"]
+        token = secrets.token_urlsafe(48)
+        c.execute("INSERT INTO sessions VALUES (?,?,?)",
+                  (hashlib.sha256(token.encode()).hexdigest(), uid, int(time.time()) + SESSION_TTL))
+    user = {"id": uid, "role": "admin"}
+    report = import_packs(user=user)
+    assigned = generate_assignments(user=user)
+    return {"token": token, "name": "本地预览", "role": "admin", "import": report, "assignments": assigned}
+
+
 @app.get("/api/admin/cases")
 def admin_cases(user=Depends(admin)):
     with db() as c:

@@ -1,0 +1,19 @@
+name: web4syn
+services:
+  web:
+    build: .
+    image: web4syn:reader-v1
+    container_name: web4syn-reader
+    restart: unless-stopped
+    environment:
+      WEB4SYN_ADMIN_PASSWORD: "${WEB4SYN_ADMIN_PASSWORD:?Set WEB4SYN_ADMIN_PASSWORD in .env}"
+      WEB4SYN_DATA: /app/data
+      WEB4SYN_DEMO_MODE: "${WEB4SYN_DEMO_MODE:-false}"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./runtime:/app/data
+      - /home/ch4090/ytwillv2/zhongj/dataset/train_output/syn-final-1013/doctor_reading_packs:/packs:ro
+    security_opt:
+      - no-new-privileges:true
+    init: true
