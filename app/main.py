@@ -12,7 +12,8 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
+from app.h5_source import patient_files, describe, encode, render
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -221,6 +222,48 @@ async def upload_image(patient_code: str = Form(...), module: str = Form(...),
     return {"ok": True, "public_code": code}
 
 
+@app.post("/api/admin/import-packs")
+def import_packs(user=Depends(admin)):
+    """Create stable one-slice blinded cases from all mounted H5 files."""
+    report = {"files": 0, "created": 0, "skipped": 0, "errors": []}
+    for path in patient_files():
+        report["files"] += 1
+        try:
+            d, z, original_z = describe(path)
+            patient = path.stem
+            if not patient or len(patient) > 90:
+                raise ValueError("Invalid patient file ID")
+            with db() as c:
+                # Import both arms at the SAME predetermined z and phase.
+                for source, dataset in (("real", "real_cect"), ("virtual", "syn_cect")):
+                    for module in ("diagnosis", "quality"):
+                        for phase in ("AP", "PVP", "DP"):
+                            group = patient if module == "diagnosis" else patient + "@@" + phase
+                            exists = c.execute("""SELECT 1 FROM cases WHERE patient_code=? AND module=? AND source=? AND phase=?""",
+                                               (group, module, source, phase)).fetchone()
+                            if exists:
+                                report["skipped"] += 1
+                                continue
+                            c.execute("""INSERT INTO cases(patient_code,module,source,phase,image_path,public_code,reference_label,created_at)
+                                        VALUES(?,?,?,?,?,?,?,?)""",
+                                      (group, module, source, phase, encode(path.name, dataset, z, phase),
+                                       "IMG-" + secrets.token_hex(4).upper(), None, int(time.time())))
+                            report["created"] += 1
+                    group = patient
+                    exists = c.execute("""SELECT 1 FROM cases WHERE patient_code=? AND module='diagnosis' AND source=? AND phase='NCCT'""",
+                                       (group, source)).fetchone()
+                    if not exists:
+                        c.execute("""INSERT INTO cases(patient_code,module,source,phase,image_path,public_code,created_at)
+                                    VALUES(?,?,?,?,?,?,?)""", (group, "diagnosis", source, "NCCT",
+                                    encode(path.name, "ncct", z, "NCCT"),
+                                    "IMG-" + secrets.token_hex(4).upper(), int(time.time())))
+                        report["created"] += 1
+                audit(c, user["id"], "h5_import", {"filename": path.name, "slice_position": z, "original_z": original_z, "D": d})
+        except Exception as exc:
+            report["errors"].append({"file": path.name, "error": str(exc)[:200]})
+    return report
+
+
 @app.get("/api/admin/cases")
 def admin_cases(user=Depends(admin)):
     with db() as c:
@@ -310,6 +353,12 @@ def task_image(task_id: int, image_id: int, user=Depends(auth)):
                         (image_id, t["case_group"], t["module"], t["source"])).fetchone()
         if not row:
             raise HTTPException(404, "Image not assigned")
+        if row["image_path"].startswith("h5:"):
+            try:
+                raw = render(row["image_path"])
+            except (ValueError, KeyError, IndexError, OSError) as exc:
+                raise HTTPException(422, f"Cannot render selected H5 image: {exc}")
+            return Response(raw, media_type="image/png", headers={"Cache-Control": "no-store"})
         path = IMAGES / row["image_path"]
         return FileResponse(path, media_type="image/png" if path.suffix == ".png" else "image/jpeg",
                             headers={"Cache-Control": "no-store"})
