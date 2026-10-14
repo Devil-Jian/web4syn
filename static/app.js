@@ -64,11 +64,28 @@ async function openTask(id){
  }catch(err){notify(err.message);goList()}
 }
 $('clear-points').onclick=()=>{state.points=[];document.querySelectorAll('.point').forEach(x=>x.remove());$('points').textContent='已标记 0 个位置'};
+let submitting=false;
 async function sendReview(payload){
- if(!state.task)return;
- if(!confirm('确认提交？提交后本次评阅无法修改。'))return;
- try{await json('/api/tasks/'+state.task.id+'/submit',{method:'POST',body:JSON.stringify(payload)});notify('评阅已提交');goList()}
- catch(err){notify(err.message)}
+ if(!state.task||submitting)return;
+ submitting=true;
+ const taskId=state.task.id;
+ const submitButton=document.querySelector('#'+(state.task.module==='quality'?'quality-form':'diagnosis-form')+' button[type="submit"]');
+ if(submitButton)submitButton.disabled=true;
+ try{
+  await json('/api/tasks/'+taskId+'/submit',{method:'POST',body:JSON.stringify(payload)});
+  const tasks=(await json('/api/tasks')).filter(t=>t.module===state.module&&t.status!=='submitted'&&t.id!==taskId);
+  if(tasks.length){
+   notify('已保存，正在进入下一张');
+   await openTask(tasks[0].id);
+  }else{
+   notify('本模块所有评阅已完成');
+   goList();
+  }
+ }catch(err){notify(err.message)}
+ finally{
+  submitting=false;
+  if(submitButton)submitButton.disabled=false;
+ }
 }
 $('quality-form').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target);sendReview({guessed_source:f.get('guessed_source'),quality_score:Number(f.get('quality_score'))})});
 $('diagnosis-form').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target);sendReview({lesion_visible:f.get('lesion_visible'),diagnosis:f.get('diagnosis'),malignancy_score:Number(f.get('malignancy_score')),confidence:Number(f.get('confidence')),lesion_points:state.points})});
