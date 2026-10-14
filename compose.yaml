@@ -12,7 +12,7 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
-      - ./runtime:/app/data
+      - /var/lib/web4syn:/app/data
       - /home/ch4090/ytwillv2/zhongj/dataset/train_output/syn-final-1013/doctor_reading_packs:/packs:ro
     security_opt:
       - no-new-privileges:true
