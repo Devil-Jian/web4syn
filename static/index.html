@@ -34,5 +34,11 @@
 <label class="choice"><input type="radio" name="malignancy_score" value="2"><span><strong>2</strong><small>较低</small></span></label>
 <label class="choice"><input type="radio" name="malignancy_score" value="3"><span><strong>3</strong><small>不确定</small></span></label>
 <label class="choice"><input type="radio" name="malignancy_score" value="4"><span><strong>4</strong><small>较高</small></span></label>
-<label class="choice"><input type="radio" name="malignancy_score" value="5"><span><strong>5</strong><small>极高</small></span></label></div></fieldset><label>诊断置信度<select name="confidence" required><option value="">请选择</option><option value="1">1 — 极低</option><option value="2">2 — 较低</option><option value="3">3 — 中等</option><option value="4">4 — 较高</option><option value="5">5 — 极高</option></select></label><div class="line"><span class="muted" id="points">已标记 0 个位置</span><button type="button" class="ghost" id="clear-points">清除标注</button></div><button>提交诊断</button></form></div></div></div>
+<label class="choice"><input type="radio" name="malignancy_score" value="5"><span><strong>5</strong><small>极高</small></span></label></div></fieldset><fieldset class="rating-field"><legend>诊断置信度（1–5级）</legend><div class="choice-row five">
+<label class="choice"><input type="radio" name="confidence" value="1" required><span><strong>1</strong><small>极低</small></span></label>
+<label class="choice"><input type="radio" name="confidence" value="2"><span><strong>2</strong><small>较低</small></span></label>
+<label class="choice"><input type="radio" name="confidence" value="3"><span><strong>3</strong><small>中等</small></span></label>
+<label class="choice"><input type="radio" name="confidence" value="4"><span><strong>4</strong><small>较高</small></span></label>
+<label class="choice"><input type="radio" name="confidence" value="5"><span><strong>5</strong><small>极高</small></span></label>
+</div></fieldset><div class="line"><span class="muted" id="points">已标记 0 个位置</span><button type="button" class="ghost" id="clear-points">清除标注</button></div><button>提交诊断</button></form></div></div></div>
 </section><div id="notice" role="status"></div></main><script src="/static/app.js"></script></body></html>
