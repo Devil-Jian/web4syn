@@ -23,3 +23,9 @@
 .choice-row.nine{grid-template-columns:repeat(3,minmax(0,1fr))}
 .choice-row.nine .choice span{min-height:48px;word-break:keep-all}
 @media (min-width:1450px){.choice-row.nine{grid-template-columns:repeat(5,minmax(0,1fr))}}
+
+/* Flat multi-select disease labels */
+.choice-row.disease-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.choice-row.disease-grid .choice span{min-height:49px}
+.choice-row.disease-grid .choice input:disabled+span{opacity:.45;cursor:not-allowed}
+@media(max-width:560px){.choice-row.disease-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
