@@ -19,3 +19,7 @@
 .choice:hover span{border-color:#7d9abb}
 .scale-note{line-height:1.6}
 @media(max-width:900px){.reader-layout:has(#quality-form:not([hidden])){grid-template-columns:1fr}.reader-layout:has(#quality-form:not([hidden])) .image-frame{height:62vh;min-height:340px}}
+
+.choice-row.nine{grid-template-columns:repeat(3,minmax(0,1fr))}
+.choice-row.nine .choice span{min-height:48px;word-break:keep-all}
+@media (min-width:1450px){.choice-row.nine{grid-template-columns:repeat(5,minmax(0,1fr))}}
