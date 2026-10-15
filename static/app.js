@@ -144,7 +144,7 @@ async function openTask(id){
   show('tasklist',false);show('reader');$('case-code').textContent=task.public_code;
   $('task-title').textContent=task.module==='quality'?'图像质量评阅':'肝脏病灶诊断评阅';
   show('quality-form',task.module==='quality');show('diagnosis-form',task.module==='diagnosis');
-  $('quality-form').reset();$('diagnosis-form').reset();$('points').textContent='已标记 0 个位置';
+  $('quality-form').reset();$('diagnosis-form').reset();syncDiagnosisChoices();$('points').textContent='已标记 0 个位置';
   task.images.forEach((image,i)=>{
    const asset=imageAssets[i];state.urls.push(asset.url);
   const panel=document.createElement('div');panel.className='image-panel';const title=document.createElement('div');title.className='image-title';title.textContent=task.module==='quality'?'CECT':image.phase;
@@ -268,5 +268,23 @@ async function sendReview(payload){
  }
 }
 $('quality-form').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target);sendReview({guessed_source:f.get('guessed_source'),quality_score:Number(f.get('quality_score'))})});
-$('diagnosis-form').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target);sendReview({lesion_visible:f.get('lesion_visible'),diagnosis:f.get('diagnosis'),malignancy_score:Number(f.get('malignancy_score')),confidence:Number(f.get('confidence')),lesion_points:state.points})});
+function syncDiagnosisChoices(){
+ const visibility=document.querySelector('input[name="lesion_visible"]:checked')?.value;
+ const noLesion=visibility==='no';
+ for(const box of document.querySelectorAll('input[name="diagnoses"]')){
+  if(noLesion)box.checked=false;
+  box.disabled=noLesion;
+ }
+ $('diagnosis-hint').textContent=noLesion?'当前选择不存在病灶，无需疾病分类。':visibility==='yes'?'存在病灶时至少选择一种疾病。':'可选填疑似疾病标签。';
+}
+document.querySelectorAll('input[name="lesion_visible"]').forEach(x=>x.addEventListener('change',syncDiagnosisChoices));
+$('diagnosis-form').addEventListener('submit',e=>{
+ e.preventDefault();
+ const f=new FormData(e.target);
+ const visibility=f.get('lesion_visible');
+ const diagnoses=f.getAll('diagnoses');
+ if(visibility==='yes'&&!diagnoses.length){notify('存在病灶时必须选择至少一种疾病标签');return}
+ if(visibility==='no'&&diagnoses.length){notify('不存在病灶时不能选择疾病标签');return}
+ sendReview({lesion_visible:visibility,diagnoses,confidence:Number(f.get('confidence')),lesion_points:[...state.points]});
+});
 boot();
