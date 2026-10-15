@@ -228,6 +228,7 @@ async function openTask(id){
   const reset=document.createElement('button');reset.textContent='重置';reset.onclick=()=>{zoom=1;img.style.transform='scale(1)'};
   tools.append(plus,minus,reset);
   if(task.module==='diagnosis')frame.onclick=e=>{
+   if(document.querySelector('input[name="lesion_visible"]:checked')?.value==='no')return;
    if(e.target!==img && e.target!==frame)return;
    const box=img.getBoundingClientRect();const x=(e.clientX-box.left)/box.width,y=(e.clientY-box.top)/box.height;
    if(x<0||x>1||y<0||y>1||state.points.length>=20)return;
@@ -346,21 +347,36 @@ async function sendReview(payload){
 $('quality-form').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target);sendReview({guessed_source:f.get('guessed_source'),quality_score:Number(f.get('quality_score'))})});
 function syncDiagnosisChoices(){
  const visibility=document.querySelector('input[name="lesion_visible"]:checked')?.value;
- const noLesion=visibility==='no';
+ const noLesion=visibility==='no',uncertain=visibility==='unsure';
  for(const box of document.querySelectorAll('input[name="diagnoses"]')){
   if(noLesion)box.checked=false;
   box.disabled=noLesion;
  }
- $('diagnosis-hint').textContent=noLesion?'当前选择不存在病灶，无需疾病分类。':visibility==='yes'?'存在病灶时至少选择一种疾病。':'可选填疑似疾病标签。';
+ const confidenceOptions=[...document.querySelectorAll('input[name="confidence"]')];
+ for(const box of confidenceOptions){
+  if(uncertain)box.checked=false;
+  box.disabled=uncertain;
+  box.required=visibility==='yes'&&box.value==='1';
+ }
+ $('diagnosis-hint').textContent=noLesion?'不存在病灶：疾病标签不可选。':visibility==='yes'?'存在病灶：至少选择一种疾病标签。':'不确定：可选择疑似疾病标签。';
+ const confidenceHint=$('confidence-hint');
+ if(confidenceHint)confidenceHint.textContent=uncertain?'不确定病灶是否存在：无需填写置信度。':visibility==='yes'?'存在病灶：诊断置信度必选。':'不存在病灶：置信度可选。';
+ if(noLesion){
+  state.points=[];
+  document.querySelectorAll('.point').forEach(x=>x.remove());
+  $('points').textContent='已标记 0 个位置';
+ }
+ $('clear-points').disabled=noLesion;
 }
 document.querySelectorAll('input[name="lesion_visible"]').forEach(x=>x.addEventListener('change',syncDiagnosisChoices));
 $('diagnosis-form').addEventListener('submit',e=>{
  e.preventDefault();
  const f=new FormData(e.target);
- const visibility=f.get('lesion_visible');
- const diagnoses=f.getAll('diagnoses');
+ const visibility=f.get('lesion_visible'),diagnoses=f.getAll('diagnoses');
+ const confidence=f.get('confidence');
  if(visibility==='yes'&&!diagnoses.length){notify('存在病灶时必须选择至少一种疾病标签');return}
+ if(visibility==='yes'&&!confidence){notify('存在病灶时必须选择诊断置信度');return}
  if(visibility==='no'&&diagnoses.length){notify('不存在病灶时不能选择疾病标签');return}
- sendReview({lesion_visible:visibility,diagnoses,confidence:Number(f.get('confidence')),lesion_points:[...state.points]});
+ sendReview({lesion_visible:visibility,diagnoses,confidence:confidence?Number(confidence):null,lesion_points:visibility==='no'?[]:[...state.points]});
 });
 boot();
