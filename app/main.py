@@ -96,7 +96,7 @@ class QualityAnswer(BaseModel):
 class DiagnosisAnswer(BaseModel):
     lesion_visible: str
     diagnoses: list[str]
-    confidence: int = Field(ge=1, le=5)
+    confidence: int | None = Field(default=None, ge=1, le=5)
     lesion_points: list[dict] = Field(default_factory=list)
 
 
@@ -312,6 +312,12 @@ def submit(task_id: int, payload: dict, user=Depends(local_reviewer)):
                 raise HTTPException(422, "No diagnosis allowed when lesion is absent")
             if answer["lesion_visible"] not in {"yes", "no", "unsure"}:
                 raise HTTPException(422, "Invalid lesion visibility")
+            if answer["lesion_visible"] == "yes" and answer["confidence"] is None:
+                raise HTTPException(422, "Confidence required when lesion exists")
+            if answer["lesion_visible"] == "unsure" and answer["confidence"] is not None:
+                raise HTTPException(422, "Confidence must be empty when lesion presence is uncertain")
+            if answer["lesion_visible"] == "no" and answer["lesion_points"]:
+                raise HTTPException(422, "No lesion points allowed when lesion is absent")
             if len(answer["lesion_points"]) > 20:
                 raise HTTPException(422, "Too many lesion points")
             for point in answer["lesion_points"]:
