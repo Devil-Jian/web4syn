@@ -24,7 +24,7 @@ DATA.mkdir(parents=True, exist_ok=True)
 IMAGES.mkdir(parents=True, exist_ok=True)
 DB = DATA / "web4syn.sqlite"
 SESSION_TTL = 12 * 3600
-LABELS = {"HCC", "ICC", "MET", "FNH", "HEM", "CYST", "OTHER", "NONE", "UNKNOWN"}
+LABELS = {"HCC", "ICC", "MET", "FNH", "HEM", "CYST", "OTHER"}
 app = FastAPI(title="web4syn Reader Study")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
@@ -95,8 +95,7 @@ class QualityAnswer(BaseModel):
 
 class DiagnosisAnswer(BaseModel):
     lesion_visible: str
-    diagnosis: str
-    malignancy_score: int = Field(ge=1, le=5)
+    diagnoses: list[str]
     confidence: int = Field(ge=1, le=5)
     lesion_points: list[dict] = Field(default_factory=list)
 
@@ -260,8 +259,15 @@ def submit(task_id: int, payload: dict, user=Depends(local_reviewer)):
                 raise HTTPException(422, "Invalid guess")
         else:
             answer = DiagnosisAnswer.model_validate(payload).model_dump()
-            if answer["diagnosis"] not in LABELS:
+            diagnoses = answer["diagnoses"]
+            if len(diagnoses) > len(LABELS) or len(set(diagnoses)) != len(diagnoses):
+                raise HTTPException(422, "Duplicate or excessive diagnosis labels")
+            if any(label not in LABELS for label in diagnoses):
                 raise HTTPException(422, "Invalid diagnosis")
+            if answer["lesion_visible"] == "yes" and not diagnoses:
+                raise HTTPException(422, "At least one diagnosis is required when lesion exists")
+            if answer["lesion_visible"] == "no" and diagnoses:
+                raise HTTPException(422, "No diagnosis allowed when lesion is absent")
             if answer["lesion_visible"] not in {"yes", "no", "unsure"}:
                 raise HTTPException(422, "Invalid lesion visibility")
             if len(answer["lesion_points"]) > 20:
