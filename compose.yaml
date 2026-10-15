@@ -9,9 +9,7 @@ services:
     container_name: web4syn-reader
     restart: unless-stopped
     environment:
-      WEB4SYN_ADMIN_PASSWORD: "${WEB4SYN_ADMIN_PASSWORD:?Set WEB4SYN_ADMIN_PASSWORD in .env}"
       WEB4SYN_DATA: /app/data
-      WEB4SYN_DEMO_MODE: "${WEB4SYN_DEMO_MODE:-false}"
     # Safe localhost binding for development/SSH port-forwarding.
     ports:
       - "127.0.0.1:8000:8000"
