@@ -183,13 +183,55 @@ def load_local_tasks():
         print("HDF5 import warnings:", report["import"]["errors"], flush=True)
 
 
-@app.get("/api/tasks")
-def tasks(user=Depends(local_reviewer)):
+@app.get("/api/tasks/summary")
+def task_summary(user=Depends(local_reviewer)):
     with db() as c:
-        return [dict(r) for r in c.execute("""SELECT id,module,public_code,status,assigned_at
-               FROM assignments WHERE user_id=? ORDER BY
-               CASE status WHEN 'pending' THEN 0 WHEN 'opened' THEN 1 ELSE 2 END,
-               assigned_at,id""", (user["id"],))]
+        rows = c.execute("""SELECT module, status, COUNT(*) AS n FROM assignments
+                            WHERE user_id=? GROUP BY module,status""", (user["id"],)).fetchall()
+    result = {m: {"total": 0, "submitted": 0, "remaining": 0} for m in ("quality", "diagnosis")}
+    for row in rows:
+        item = result[row["module"]]
+        item["total"] += row["n"]
+        if row["status"] == "submitted":
+            item["submitted"] += row["n"]
+        else:
+            item["remaining"] += row["n"]
+    return result
+
+
+@app.get("/api/tasks/next")
+def task_next(module: str, after_id: int = 0, limit: int = 50, user=Depends(local_reviewer)):
+    if module not in {"quality", "diagnosis"}:
+        raise HTTPException(422, "Invalid module")
+    limit = min(max(limit, 1), 50)
+    with db() as c:
+        rows = c.execute("""SELECT id,module,public_code,status,assigned_at FROM assignments
+                            WHERE user_id=? AND module=? AND status!='submitted' AND id>?
+                            ORDER BY id LIMIT ?""",
+                         (user["id"],module,after_id,limit)).fetchall()
+    return {"items": [dict(r) for r in rows], "has_more": len(rows)==limit}
+
+
+@app.get("/api/tasks")
+def tasks(module: str, status: str = "all", page: int = 1,
+          page_size: int = 50, user=Depends(local_reviewer)):
+    if module not in {"quality", "diagnosis"} or status not in {"all", "pending", "submitted"}:
+        raise HTTPException(422, "Invalid filter")
+    page = max(1, page)
+    page_size = min(max(1, page_size), 50)
+    where = "user_id=? AND module=?"
+    args = [user["id"], module]
+    if status == "pending":
+        where += " AND status!='submitted'"
+    elif status == "submitted":
+        where += " AND status='submitted'"
+    with db() as c:
+        total = c.execute("SELECT COUNT(*) FROM assignments WHERE "+where,args).fetchone()[0]
+        rows = c.execute("""SELECT id,module,public_code,status,assigned_at
+                            FROM assignments WHERE """+where+
+                         " ORDER BY id LIMIT ? OFFSET ?",args+[page_size,(page-1)*page_size]).fetchall()
+    return {"items": [dict(r) for r in rows], "total": total, "page": page,
+            "page_size": page_size, "pages": max(1,(total+page_size-1)//page_size)}
 
 
 def get_owned_task(c, task_id, user):
