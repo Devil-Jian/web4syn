@@ -29,3 +29,11 @@
 .choice-row.disease-grid .choice span{min-height:49px}
 .choice-row.disease-grid .choice input:disabled+span{opacity:.45;cursor:not-allowed}
 @media(max-width:560px){.choice-row.disease-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Bounded task browser: summary, status filter and pagination */
+.module-count{color:#a9bbd1;font-size:14px;margin:24px 0 19px}
+.task-toolbar{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:16px 0 22px}
+.task-toolbar .task-filter{display:flex;align-items:center;gap:10px;margin:0;color:#a9bbd1}
+.task-toolbar select{width:auto;min-width:130px;margin:0}
+.task-pagination{display:flex;align-items:center;justify-content:center;gap:22px;padding:24px 0 4px;color:#b7cbe2}
+@media(max-width:600px){.task-toolbar{align-items:stretch;flex-direction:column}.task-toolbar .task-filter{justify-content:space-between}.task-pagination{gap:10px}}
