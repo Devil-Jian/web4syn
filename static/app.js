@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const state={token:sessionStorage.getItem('token'),role:null,module:'quality',task:null,points:[],started:0,timer:null,urls:[]};
+const state={token:sessionStorage.getItem('token'),role:null,module:'quality',task:null,points:[],started:0,timer:null,urls:[],taskCache:{},prefetch:null,openSeq:0};
 const show=(id,on=true)=>$(id).hidden=!on;
 const notify=msg=>{const n=$('notice');n.textContent=msg;n.style.display='block';setTimeout(()=>n.style.display='none',4500)};
 async function request(path,opts={}){
@@ -12,8 +12,9 @@ async function request(path,opts={}){
 }
 async function json(path,opts={}){return(await request(path,opts)).json()}
 function resetImages(){state.urls.forEach(URL.revokeObjectURL);state.urls=[];$('images').replaceChildren()}
-function dashboard(){show('dashboard');show('tasklist',false);show('reader',false);resetImages()}
-function goList(){show('dashboard',false);show('tasklist');show('reader',false);clearInterval(state.timer);resetImages();loadTasks()}
+function dropPrefetch(){state.prefetch=null}
+function dashboard(){state.openSeq++;show('dashboard');show('tasklist',false);show('reader',false);resetImages();dropPrefetch()}
+function goList(){state.openSeq++;show('dashboard',false);show('tasklist');show('reader',false);clearInterval(state.timer);resetImages();dropPrefetch();loadTasks()}
 async function boot(){
  if(!state.token){try{const demo=await json('/api/demo/initialize',{method:'POST'});state.token=demo.token;sessionStorage.setItem('token',demo.token);state.demo=true;notify('预览数据：扫描 '+demo.import.files+' 例 HDF5');}catch{show('login');show('workspace',false);return}}
  try{const me=await json('/api/me');state.demo=false;try{const preview=await json('/api/demo/status');state.demo=!!preview.enabled;}catch(e){console.warn('预览状态获取失败，不影响正常登录',e)}if(state.demo){try{const prepared=await json('/api/demo/prepare',{method:'POST'});if(prepared.import?.errors?.length)notify('部分 HDF5 无法导入，请检查容器日志');}catch(e){notify('登录成功，但预览数据加载失败：'+e.message)}}state.role=me.role;$('who').textContent=state.demo?'本地预览模式':me.display_name+' · '+(me.role==='admin'?'管理员':'医生');show('login',false);show('workspace');show('admin',me.role==='admin'&&!state.demo);$('logout').hidden=!!state.demo;dashboard()}
@@ -25,22 +26,50 @@ document.querySelectorAll('[data-module]').forEach(b=>b.onclick=()=>{state.modul
 $('back').onclick=dashboard;$('back-list').onclick=goList;
 async function loadTasks(){
  $('list-title').textContent=state.module==='quality'?'图像质量任务':'诊断效能任务';
- try{const all=(await json('/api/tasks')).filter(t=>t.module===state.module);const list=$('task-rows');list.replaceChildren();
+ try{const all=(await json('/api/tasks')).filter(t=>t.module===state.module);state.taskCache[state.module]=all;const list=$('task-rows');list.replaceChildren();
  if(!all.length){list.textContent='暂无任务，请联系研究管理员分配。';return}
  all.forEach(t=>{const row=document.createElement('div');row.className='task-row';const info=document.createElement('div');const title=document.createElement('strong');title.textContent=t.public_code;const meta=document.createElement('small');meta.textContent=' · '+(t.status==='submitted'?'已提交':'待评阅');info.append(title,meta);row.append(info);const button=document.createElement('button');button.textContent=t.status==='submitted'?'已完成':'开始评阅';button.disabled=t.status==='submitted';button.onclick=()=>openTask(t.id);row.append(button);list.append(row)})}
  catch(err){notify(err.message)}
 }
 function tick(){const s=Math.floor((Date.now()-state.started)/1000);$('elapsed').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
+function pendingTasks(){
+ return (state.taskCache[state.module]||[]).filter(t=>t.status!=='submitted');
+}
+function nextTaskId(current){
+ const pending=pendingTasks();
+ const index=pending.findIndex(t=>t.id===current);
+ return index>=0?(pending[index+1]?.id??null):(pending[0]?.id??null);
+}
+// Keep at most one future task in memory. Images are fetched concurrently.
+function preloadTask(id){
+ if(!id||state.prefetch?.id===id)return;
+ const entry={id,promise:null};
+ state.prefetch=entry;
+ entry.promise=(async()=>{
+  const task=await json('/api/tasks/'+id);
+  const imageBlobs=await Promise.all(task.images.map(async image=>await(await request(image.url)).blob()));
+  return {task,imageBlobs};
+ })();
+ // Avoid unhandled promise rejection if the reviewer navigates away.
+ entry.promise.catch(()=>{if(state.prefetch===entry)state.prefetch=null});
+}
 async function openTask(id){
+ const seq=++state.openSeq;
  try{
- resetImages();state.points=[];
- const task=await json('/api/tasks/'+id);state.task=task;
- show('tasklist',false);show('reader');$('case-code').textContent=task.public_code;
- $('task-title').textContent=task.module==='quality'?'图像质量评阅':'肝脏病灶诊断评阅';
- show('quality-form',task.module==='quality');show('diagnosis-form',task.module==='diagnosis');
- $('quality-form').reset();$('diagnosis-form').reset();$('points').textContent='已标记 0 个位置';
- for(const image of task.images){
-  const res=await request(image.url);const blob=await res.blob();const blobUrl=URL.createObjectURL(blob);state.urls.push(blobUrl);
+  const prepared=state.prefetch?.id===id
+   ?await state.prefetch.promise
+   :await (async()=>{const task=await json('/api/tasks/'+id);return {task,imageBlobs:await Promise.all(task.images.map(async i=>await(await request(i.url)).blob()))}})();
+  if(seq!==state.openSeq)return;
+  state.prefetch=null;
+  resetImages();state.points=[];
+  const {task,imageBlobs}=prepared;
+  state.task=task;
+  show('tasklist',false);show('reader');$('case-code').textContent=task.public_code;
+  $('task-title').textContent=task.module==='quality'?'图像质量评阅':'肝脏病灶诊断评阅';
+  show('quality-form',task.module==='quality');show('diagnosis-form',task.module==='diagnosis');
+  $('quality-form').reset();$('diagnosis-form').reset();$('points').textContent='已标记 0 个位置';
+  task.images.forEach((image,i)=>{
+   const blobUrl=URL.createObjectURL(imageBlobs[i]);state.urls.push(blobUrl);
   const panel=document.createElement('div');panel.className='image-panel';const title=document.createElement('div');title.className='image-title';title.textContent=task.module==='quality'?'CECT':image.phase;
   const frame=document.createElement('div');frame.className='image-frame';const img=document.createElement('img');img.src=blobUrl;img.alt='匿名二维 CT '+image.phase;img.draggable=false;frame.append(img);
   let zoom=1;
@@ -59,9 +88,10 @@ async function openTask(id){
    $('points').textContent='已标记 '+state.points.length+' 个位置';
   };
   panel.append(title,frame,tools);$('images').append(panel);
- }
- clearInterval(state.timer);state.started=Date.now();tick();state.timer=setInterval(tick,1000);
- }catch(err){notify(err.message);goList()}
+  });
+  clearInterval(state.timer);state.started=Date.now();tick();state.timer=setInterval(tick,1000);
+  preloadTask(nextTaskId(id));
+ }catch(err){if(seq!==state.openSeq)return;notify(err.message);goList()}
 }
 $('clear-points').onclick=()=>{state.points=[];document.querySelectorAll('.point').forEach(x=>x.remove());$('points').textContent='已标记 0 个位置'};
 let submitting=false;
@@ -73,10 +103,12 @@ async function sendReview(payload){
  if(submitButton)submitButton.disabled=true;
  try{
   await json('/api/tasks/'+taskId+'/submit',{method:'POST',body:JSON.stringify(payload)});
-  const tasks=(await json('/api/tasks')).filter(t=>t.module===state.module&&t.status!=='submitted'&&t.id!==taskId);
-  if(tasks.length){
+  const current=(state.taskCache[state.module]||[]).find(t=>t.id===taskId);
+  if(current)current.status='submitted';
+  const next=nextTaskId(taskId);
+  if(next){
    notify('已保存，正在进入下一张');
-   await openTask(tasks[0].id);
+   await openTask(next);
   }else{
    notify('本模块所有评阅已完成');
    goList();
