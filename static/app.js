@@ -34,14 +34,14 @@ document.querySelectorAll('[data-module]').forEach(b=>b.onclick=()=>{state.modul
 $('back').onclick=dashboard;$('back-list').onclick=goList;
 async function loadTasks(){
  $('list-title').textContent=state.module==='quality'?'图像质量任务':'诊断效能任务';
- try{const all=(await json('/api/tasks')).filter(t=>t.module===state.module);state.taskCache[state.module]=all;const list=$('task-rows');list.replaceChildren();
+ try{const all=(await json('/api/tasks')).filter(t=>t.module===state.module);for(const t of all)if(outbox.some(q=>q.id===t.id))t.status='queued';state.taskCache[state.module]=all;const list=$('task-rows');list.replaceChildren();
  if(!all.length){list.textContent='暂无任务，请联系研究管理员分配。';return}
- all.forEach(t=>{const row=document.createElement('div');row.className='task-row';const info=document.createElement('div');const title=document.createElement('strong');title.textContent=t.public_code;const meta=document.createElement('small');meta.textContent=' · '+(t.status==='submitted'?'已提交':'待评阅');info.append(title,meta);row.append(info);const button=document.createElement('button');button.textContent=t.status==='submitted'?'已完成':'开始评阅';button.disabled=t.status==='submitted';button.onclick=()=>openTask(t.id);row.append(button);list.append(row)})}
+ all.forEach(t=>{const row=document.createElement('div');row.className='task-row';const info=document.createElement('div');const title=document.createElement('strong');title.textContent=t.public_code;const meta=document.createElement('small');meta.textContent=' · '+(t.status==='submitted'?'已提交':t.status==='queued'?'本地待同步':'待评阅');info.append(title,meta);row.append(info);const button=document.createElement('button');button.textContent=t.status==='submitted'?'已完成':t.status==='queued'?'待同步':'开始评阅';button.disabled=t.status==='submitted'||t.status==='queued';button.onclick=()=>openTask(t.id);row.append(button);list.append(row)})}
  catch(err){notify(err.message)}
 }
 function tick(){const s=Math.floor((Date.now()-state.started)/1000);$('elapsed').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
 function pendingTasks(){
- return (state.taskCache[state.module]||[]).filter(t=>t.status!=='submitted');
+ return (state.taskCache[state.module]||[]).filter(t=>t.status!=='submitted'&&t.status!=='queued'&&!outbox.some(q=>q.id===t.id));
 }
 function nextTaskId(current){
  const pending=pendingTasks();
@@ -172,6 +172,68 @@ async function openTask(id){
  }catch(err){if(seq!==state.openSeq)return;notify('下一张图像加载失败：'+err.message);if(!state.task)goList()}
 }
 $('clear-points').onclick=()=>{state.points=[];document.querySelectorAll('.point').forEach(x=>x.remove());$('points').textContent='已标记 0 个位置'};
+// Local outbox: a rating is staged durably before the UI advances.
+// This is browser-local data and must not be treated as server-confirmed.
+const OUTBOX_KEY='web4syn-review-outbox-v1';
+let outbox=[];
+try{
+ const stored=JSON.parse(localStorage.getItem(OUTBOX_KEY)||'[]');
+ if(Array.isArray(stored))outbox=stored.filter(x=>Number.isInteger(x.id)&&x.payload&&typeof x.payload==='object');
+}catch(e){console.warn('Cannot read local outbox',e)}
+let uploadActive=false;
+let retryTimer=null;
+let retryDelay=1500;
+function outboxStatus(){
+ let el=$('sync-status');
+ if(!el){
+  el=document.createElement('span');
+  el.id='sync-status';
+  el.style.cssText='font-size:13px;color:#f8cc81;margin-left:12px';
+  const head=document.querySelector('header');
+  if(head)head.append(el);
+ }
+ if(el)el.textContent=outbox.length?'待同步 '+outbox.length+' 条（保留在本浏览器）':'评分已同步';
+}
+function persistOutbox(){
+ // If storage is blocked or full, do not transition to another image.
+ localStorage.setItem(OUTBOX_KEY,JSON.stringify(outbox));
+ outboxStatus();
+}
+function scheduleUpload(delay=0){
+ if(retryTimer!==null)clearTimeout(retryTimer);
+ retryTimer=setTimeout(()=>{retryTimer=null;void flushOutbox()},delay);
+}
+async function flushOutbox(){
+ if(uploadActive||!outbox.length)return;
+ uploadActive=true;
+ try{
+  while(outbox.length){
+   const item=outbox[0];
+   try{
+    await json('/api/tasks/'+item.id+'/submit',{method:'POST',body:JSON.stringify(item.payload)});
+   }catch(err){
+    // A response may be lost after successful server commit.
+    // Reconcile a 409 only if the server confirms submission.
+    if(String(err.message).includes('Already submitted')){
+     const task=await json('/api/tasks/'+item.id);
+     if(task.status!=='submitted')throw err;
+    }else throw err;
+   }
+   outbox.shift();
+   persistOutbox();
+   retryDelay=1500;
+  }
+ }catch(err){
+  console.warn('Background rating sync failed',err);
+  outboxStatus();
+  scheduleUpload(retryDelay);
+  retryDelay=Math.min(retryDelay*2,30000);
+ }finally{uploadActive=false}
+}
+window.addEventListener('online',()=>scheduleUpload(0));
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)scheduleUpload(0)});
+outboxStatus();
+if(outbox.length)scheduleUpload(0);
 let submitting=false;
 async function sendReview(payload){
  if(!state.task||submitting)return;
@@ -180,19 +242,26 @@ async function sendReview(payload){
  const submitButton=document.querySelector('#'+(state.task.module==='quality'?'quality-form':'diagnosis-form')+' button[type="submit"]');
  if(submitButton)submitButton.disabled=true;
  try{
-  await json('/api/tasks/'+taskId+'/submit',{method:'POST',body:JSON.stringify(payload)});
+  if(!outbox.some(x=>x.id===taskId)){
+   const nextOutbox=[...outbox,{id:taskId,payload,createdAt:Date.now()}];
+   // A failed local write must prevent advancing and leave the form intact.
+   localStorage.setItem(OUTBOX_KEY,JSON.stringify(nextOutbox));
+   outbox=nextOutbox;
+  }
+  outboxStatus();
+  // Mark only the local queue; the server state remains pending until synced.
   const current=(state.taskCache[state.module]||[]).find(t=>t.id===taskId);
-  if(current)current.status='submitted';
+  if(current)current.status='queued';
   const next=nextTaskId(taskId);
+  scheduleUpload(0);
   if(next){
-   notify('已保存，正在进入下一张');
-   // Keep the current image visible until the decoded next study is ready.
+   notify('评分已在本机暂存，正在打开下一张');
    await openTask(next);
   }else{
-   notify('本模块所有评阅已完成');
+   notify('当前模块已评阅完毕；请确认右上角待同步数量归零');
    goList();
   }
- }catch(err){notify(err.message)}
+ }catch(err){notify('本地保存或切换失败：'+err.message)}
  finally{
   submitting=false;
   if(submitButton)submitButton.disabled=false;
