@@ -33,7 +33,7 @@ function boot(){dashboard();loadSummary()}
 document.querySelectorAll('[data-module]').forEach(b=>b.onclick=()=>{state.module=b.dataset.module;goList()});
 $('back').onclick=dashboard;$('back-list').onclick=goList;
 let listPage=1,listPages=1,listStatus='pending',listSeq=0;
-const stream={module:null,after:0,hasMore:true,busy:false};
+const stream={module:null,after:0,hasMore:true,busy:false,loading:null};
 async function loadSummary(){
  try{
   const data=await json('/api/tasks/summary');
@@ -80,9 +80,10 @@ $('task-filter').onchange=e=>{listStatus=e.target.value;listPage=1;loadTasks()};
 $('prev-page').onclick=()=>{if(listPage>1){listPage--;loadTasks()}};
 $('next-page').onclick=()=>{if(listPage<listPages){listPage++;loadTasks()}};
 async function appendStreamBatch(){
- if(stream.busy||!stream.hasMore||stream.module!==state.module)return;
+ if(stream.loading)return stream.loading;
+ if(!stream.hasMore||stream.module!==state.module)return;
  stream.busy=true;
- try{
+ const job=(async()=>{try{
   const batch=await json('/api/tasks/next?module='+stream.module+'&after_id='+stream.after+'&limit=50');
   if(stream.module!==state.module)return;
   const items=markLocalTasks(batch.items);
@@ -95,13 +96,16 @@ async function appendStreamBatch(){
   const activeId=state.task?.id||0;
   while(existing.length>100&&existing[0].id<activeId&&!state.prefetch.has(existing[0].id))existing.shift();
   state.taskCache[stream.module]=existing;
- }finally{stream.busy=false}
+ }finally{stream.busy=false}})();
+ stream.loading=job;
+ try{return await job}finally{if(stream.loading===job)stream.loading=null}
 }
 async function startStream(id=0){
  state.taskCache[state.module]=[];
  stream.module=state.module;stream.after=Math.max(0,id-1);stream.hasMore=true;
  try{
   await appendStreamBatch();
+  while(!id&&!pendingTasks().length&&stream.hasMore)await appendStreamBatch();
   const first=id||pendingTasks()[0]?.id;
   if(!first||!pendingTasks().some(t=>t.id===first)){notify('没有可评阅的任务');return}
   await openTask(first);
@@ -325,7 +329,7 @@ async function sendReview(payload){
   if(current)current.status='queued';
   let next=nextTaskId(taskId);
   scheduleUpload(0);
-  if(!next&&stream.hasMore){await appendStreamBatch();next=nextTaskId(taskId)}
+  while(!next&&stream.hasMore){await appendStreamBatch();next=nextTaskId(taskId)}
   if(next){
    notify('评分已在本机暂存，正在打开下一张');
    await openTask(next);
