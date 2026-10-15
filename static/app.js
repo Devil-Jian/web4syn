@@ -27,26 +27,94 @@ function dropPrefetch(){
  state.prefetch.clear();
  state.prefetchQueue=[];
 }
-function dashboard(){state.openSeq++;show('dashboard');show('tasklist',false);show('reader',false);resetImages();dropPrefetch()}
+function dashboard(){loadSummary();state.openSeq++;show('dashboard');show('tasklist',false);show('reader',false);resetImages();dropPrefetch()}
 function goList(){state.openSeq++;show('dashboard',false);show('tasklist');show('reader',false);clearInterval(state.timer);resetImages();dropPrefetch();loadTasks()}
-function boot(){dashboard()}
+function boot(){dashboard();loadSummary()}
 document.querySelectorAll('[data-module]').forEach(b=>b.onclick=()=>{state.module=b.dataset.module;goList()});
 $('back').onclick=dashboard;$('back-list').onclick=goList;
-async function loadTasks(){
- $('list-title').textContent=state.module==='quality'?'图像质量任务':'诊断效能任务';
- try{const all=(await json('/api/tasks')).filter(t=>t.module===state.module);for(const t of all)if(outbox.some(q=>q.id===t.id))t.status='queued';state.taskCache[state.module]=all;const list=$('task-rows');list.replaceChildren();
- if(!all.length){list.textContent='暂无任务，请联系研究管理员分配。';return}
- all.forEach(t=>{const row=document.createElement('div');row.className='task-row';const info=document.createElement('div');const title=document.createElement('strong');title.textContent=t.public_code;const meta=document.createElement('small');meta.textContent=' · '+(t.status==='submitted'?'已提交':t.status==='queued'?'本地待同步':'待评阅');info.append(title,meta);row.append(info);const button=document.createElement('button');button.textContent=t.status==='submitted'?'已完成':t.status==='queued'?'待同步':'开始评阅';button.disabled=t.status==='submitted'||t.status==='queued';button.onclick=()=>openTask(t.id);row.append(button);list.append(row)})}
- catch(err){notify(err.message)}
+let listPage=1,listPages=1,listStatus='pending',listSeq=0;
+const stream={module:null,after:0,hasMore:true,busy:false};
+async function loadSummary(){
+ try{
+  const data=await json('/api/tasks/summary');
+  for(const module of ['quality','diagnosis']){
+   const v=data[module],local=outbox.filter(x=>x.module===module).length;
+   $(module+'-count').textContent='总任务 '+v.total+' · 已完成 '+v.submitted+' · 待评阅 '+v.remaining+(local?' · 本地待同步 '+local:'');
+  }
+ }catch(err){console.warn('Task summary failed',err)}
 }
+function markLocalTasks(items){
+ for(const t of items)if(outbox.some(q=>q.id===t.id))t.status='queued';
+ return items;
+}
+async function loadTasks(){
+ const seq=++listSeq;
+ $('list-title').textContent=state.module==='quality'?'图像质量任务':'诊断效能任务';
+ try{
+  const data=await json('/api/tasks?module='+state.module+'&status='+listStatus+'&page='+listPage+'&page_size=50');
+  if(seq!==listSeq)return;
+  listPages=data.pages;
+  $('task-total').textContent='共 '+data.total+' 条 · 每页 50 条';
+  $('page-info').textContent='第 '+data.page+' / '+data.pages+' 页';
+  $('prev-page').disabled=listPage<=1;
+  $('next-page').disabled=listPage>=data.pages;
+  const list=$('task-rows');list.replaceChildren();
+  const items=markLocalTasks(data.items);
+  if(!items.length){list.textContent='此筛选条件下暂无任务';return}
+  items.forEach(t=>{
+   const row=document.createElement('div');row.className='task-row';
+   const info=document.createElement('div'),title=document.createElement('strong');
+   title.textContent=t.public_code;
+   const meta=document.createElement('small');
+   meta.textContent=' · '+(t.status==='submitted'?'已提交':t.status==='queued'?'本地待同步':'待评阅');
+   info.append(title,meta);row.append(info);
+   const button=document.createElement('button');
+   button.textContent=t.status==='submitted'?'已完成':t.status==='queued'?'待同步':'开始评阅';
+   button.disabled=t.status==='submitted'||t.status==='queued';
+   button.onclick=()=>startStream(t.id);
+   row.append(button);list.append(row);
+  });
+ }catch(err){notify(err.message)}
+}
+$('task-filter').onchange=e=>{listStatus=e.target.value;listPage=1;loadTasks()};
+$('prev-page').onclick=()=>{if(listPage>1){listPage--;loadTasks()}};
+$('next-page').onclick=()=>{if(listPage<listPages){listPage++;loadTasks()}};
+async function appendStreamBatch(){
+ if(stream.busy||!stream.hasMore||stream.module!==state.module)return;
+ stream.busy=true;
+ try{
+  const batch=await json('/api/tasks/next?module='+stream.module+'&after_id='+stream.after+'&limit=50');
+  if(stream.module!==state.module)return;
+  const items=markLocalTasks(batch.items);
+  if(items.length)stream.after=items[items.length-1].id;
+  stream.hasMore=batch.has_more;
+  const existing=state.taskCache[stream.module]||[];
+  const known=new Set(existing.map(x=>x.id));
+  existing.push(...items.filter(t=>!known.has(t.id)));
+  // Retain only the current bounded reading window, not the full index.
+  const activeId=state.task?.id||0;
+  while(existing.length>100&&existing[0].id<activeId&&!state.prefetch.has(existing[0].id))existing.shift();
+  state.taskCache[stream.module]=existing;
+ }finally{stream.busy=false}
+}
+async function startStream(id=0){
+ state.taskCache[state.module]=[];
+ stream.module=state.module;stream.after=Math.max(0,id-1);stream.hasMore=true;
+ try{
+  await appendStreamBatch();
+  const first=id||pendingTasks()[0]?.id;
+  if(!first||!pendingTasks().some(t=>t.id===first)){notify('没有可评阅的任务');return}
+  await openTask(first);
+ }catch(err){notify(err.message)}
+}
+$('continue-review').onclick=()=>startStream();
 function tick(){const s=Math.floor((Date.now()-state.started)/1000);$('elapsed').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
 function pendingTasks(){
  return (state.taskCache[state.module]||[]).filter(t=>t.status!=='submitted'&&t.status!=='queued'&&!outbox.some(q=>q.id===t.id));
 }
 function nextTaskId(current){
  const pending=pendingTasks();
- const index=pending.findIndex(t=>t.id===current);
- return index>=0?(pending[index+1]?.id??null):(pending[0]?.id??null);
+ return pending.find(t=>t.id>current)?.id??pending[0]?.id??null;
 }
 // While the doctor reviews the current case, keep 5 upcoming quality images
 // or 3 upcoming diagnosis cases (each normally has NCCT + AP/PVP/DP) preloaded.
@@ -167,8 +235,11 @@ async function openTask(id){
   panel.append(title,frame,tools);$('images').append(panel);
   });
   clearInterval(state.timer);state.started=Date.now();tick();state.timer=setInterval(tick,1000);
-  // Refill the sliding lookahead after the new case is painted.
-  requestAnimationFrame(()=>{if(seq===state.openSeq)warmNextTasks(id)});
+  // Keep a bounded cursor stream available without blocking image display.
+  requestAnimationFrame(()=>{if(seq===state.openSeq){
+   warmNextTasks(id);
+   if(pendingTasks().length<=8&&stream.hasMore)void appendStreamBatch().then(()=>{if(seq===state.openSeq)warmNextTasks(id)}).catch(console.warn);
+  }});
  }catch(err){if(seq!==state.openSeq)return;notify('下一张图像加载失败：'+err.message);if(!state.task)goList()}
 }
 $('clear-points').onclick=()=>{state.points=[];document.querySelectorAll('.point').forEach(x=>x.remove());$('points').textContent='已标记 0 个位置'};
@@ -252,8 +323,9 @@ async function sendReview(payload){
   // Mark only the local queue; the server state remains pending until synced.
   const current=(state.taskCache[state.module]||[]).find(t=>t.id===taskId);
   if(current)current.status='queued';
-  const next=nextTaskId(taskId);
+  let next=nextTaskId(taskId);
   scheduleUpload(0);
+  if(!next&&stream.hasMore){await appendStreamBatch();next=nextTaskId(taskId)}
   if(next){
    notify('评分已在本机暂存，正在打开下一张');
    await openTask(next);
