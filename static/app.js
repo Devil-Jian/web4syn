@@ -163,6 +163,7 @@ function pumpPrefetch(){
   const entry=state.prefetchQueue.shift();
   if(entry.generation!==state.prefetchGeneration||!state.prefetch.has(entry.id))continue;
   state.prefetchBusy++;
+  entry.started=true;
   fetchTaskImages(entry.id,true).then(prepared=>{
    if(entry.discarded||entry.generation!==state.prefetchGeneration){
     disposePrepared(prepared);
@@ -181,7 +182,7 @@ function preloadTask(id){
  if(!id||state.prefetch.has(id))return;
  let resolve,reject;
  const promise=new Promise((ok,fail)=>{resolve=ok;reject=fail});
- const entry={id,promise,resolve,reject,generation:state.prefetchGeneration,discarded:false,prepared:null};
+ const entry={id,promise,resolve,reject,generation:state.prefetchGeneration,discarded:false,prepared:null,started:false};
  state.prefetch.set(id,entry);
  state.prefetchQueue.push(entry);
  promise.catch(()=>{if(state.prefetch.get(id)===entry)state.prefetch.delete(id)});
@@ -204,7 +205,9 @@ async function openTask(id){
  state.prefetchPaused=true;
  const seq=++state.openSeq;
  try{
-  const entry=state.prefetch.get(id);
+  let entry=state.prefetch.get(id);
+  // Foreground image must not wait for a background item still in the queue.
+  if(entry&&!entry.started){state.prefetchQueue=state.prefetchQueue.filter(x=>x!==entry);state.prefetch.delete(id);entry.discarded=true;entry=null}
   let prepared;
   try{prepared=entry?await entry.promise:await fetchTaskImages(id)}
   catch(err){
@@ -258,7 +261,7 @@ async function openTask(id){
      void appendStreamBatch().then(()=>{if(seq===state.openSeq)warmNextTasks(id)}).catch(console.warn);
    },1200);
   }});
- }catch(err){if(seq!==state.openSeq)return;notify('下一张图像加载失败：'+err.message);if(!state.task)goList()}
+ }catch(err){if(seq!==state.openSeq)return;state.prefetchPaused=false;notify('下一张图像加载失败：'+err.message);if(!state.task)goList();else pumpPrefetch()}
 }
 $('clear-points').onclick=()=>{state.points=[];document.querySelectorAll('.point').forEach(x=>x.remove());$('points').textContent='已标记 0 个位置'};
 // Local outbox: a rating is staged durably before the UI advances.
