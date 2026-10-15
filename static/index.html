@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>web4syn · 临床评阅平台</title><link rel="stylesheet" href="/static/style.css?v=20261015-d"></head>
+<title>web4syn · 临床评阅平台</title><link rel="stylesheet" href="/static/style.css?v=20261015-g"></head>
 <body><header><div class="brand"><span class="brand-mark">W</span><span>web4syn <small>2D Clinical Reader Study</small></span></div><div id="who">本地评阅 · 无账户</div></header>
 <main>
 
 <section id="workspace">
 <div class="intro"><div><h1>评阅工作台</h1></div></div>
-<div id="dashboard"><div class="grid2"><div class="panel module"><div class="tag">MODULE 01</div><h2>图像质量与真实性</h2><p>真实/合成盲判与 1–5 分图像质量评价。</p><button data-module="quality">查看质量评阅任务</button></div><div class="panel module"><div class="tag">MODULE 02</div><h2>诊断效能评价</h2><p>NCCT + 多期相增强图像，完成病灶分类与置信度评价。</p><button data-module="diagnosis">查看诊断评阅任务</button></div></div>
+<div id="dashboard"><div class="grid2"><div class="panel module"><div class="tag">MODULE 01</div><h2>图像质量与真实性</h2><button data-module="quality">查看质量评阅任务</button></div><div class="panel module"><div class="tag">MODULE 02</div><h2>诊断效能评价</h2><button data-module="diagnosis">查看诊断评阅任务</button></div></div>
 </div>
 <div id="tasklist" class="panel" hidden><div class="line"><h2 id="list-title">待评阅任务</h2><button class="ghost" id="back">返回工作台</button></div><div id="task-rows"></div></div>
 <div id="reader" hidden><div class="line taskhead"><div><div class="muted" id="case-code"></div><h2 id="task-title"></h2></div><div class="line"><span id="elapsed" class="timer">00:00</span><button class="ghost" id="back-list">返回任务列表</button></div></div>
@@ -29,16 +29,17 @@
 <label class="choice"><input type="radio" name="lesion_visible" value="no"><span>不存在</span></label>
 <label class="choice"><input type="radio" name="lesion_visible" value="unsure"><span>不确定</span></label>
 </div></fieldset>
-<label>主要疾病分类<select name="diagnosis" required><option value="">请选择</option><option>HCC</option><option>ICC</option><option>MET</option><option>FNH</option><option>HEM</option><option>CYST</option><option>OTHER</option><option>NONE</option><option>UNKNOWN</option></select></label><fieldset class="rating-field"><legend>恶性风险（1–5级）</legend><div class="choice-row five">
-<label class="choice"><input type="radio" name="malignancy_score" value="1" required><span><strong>1</strong><small>极低</small></span></label>
-<label class="choice"><input type="radio" name="malignancy_score" value="2"><span><strong>2</strong><small>较低</small></span></label>
-<label class="choice"><input type="radio" name="malignancy_score" value="3"><span><strong>3</strong><small>不确定</small></span></label>
-<label class="choice"><input type="radio" name="malignancy_score" value="4"><span><strong>4</strong><small>较高</small></span></label>
-<label class="choice"><input type="radio" name="malignancy_score" value="5"><span><strong>5</strong><small>极高</small></span></label></div></fieldset><fieldset class="rating-field"><legend>诊断置信度（1–5级）</legend><div class="choice-row five">
+<fieldset class="rating-field" id="diagnosis-labels-field"><legend>主要疾病分类（可多选）</legend><div class="choice-row disease-grid"><label class="choice"><input type="checkbox" name="diagnoses" value="HCC"><span>HCC</span></label>
+<label class="choice"><input type="checkbox" name="diagnoses" value="ICC"><span>ICC</span></label>
+<label class="choice"><input type="checkbox" name="diagnoses" value="MET"><span>MET</span></label>
+<label class="choice"><input type="checkbox" name="diagnoses" value="FNH"><span>FNH</span></label>
+<label class="choice"><input type="checkbox" name="diagnoses" value="HEM"><span>HEM</span></label>
+<label class="choice"><input type="checkbox" name="diagnoses" value="CYST"><span>CYST</span></label>
+<label class="choice"><input type="checkbox" name="diagnoses" value="OTHER"><span>OTHER</span></label></div><p class="muted" id="diagnosis-hint">存在病灶时至少选择一种疾病；不存在病灶时无需选择。</p></fieldset><fieldset class="rating-field"><legend>诊断置信度（1–5级）</legend><div class="choice-row five">
 <label class="choice"><input type="radio" name="confidence" value="1" required><span><strong>1</strong><small>极低</small></span></label>
 <label class="choice"><input type="radio" name="confidence" value="2"><span><strong>2</strong><small>较低</small></span></label>
 <label class="choice"><input type="radio" name="confidence" value="3"><span><strong>3</strong><small>中等</small></span></label>
 <label class="choice"><input type="radio" name="confidence" value="4"><span><strong>4</strong><small>较高</small></span></label>
 <label class="choice"><input type="radio" name="confidence" value="5"><span><strong>5</strong><small>极高</small></span></label>
 </div></fieldset><div class="line"><span class="muted" id="points">已标记 0 个位置</span><button type="button" class="ghost" id="clear-points">清除标注</button></div><button>提交诊断</button></form></div></div></div>
-</section><div id="notice" role="status"></div></main><script src="/static/app.js?v=20261015-f"></script></body></html>
+</section><div id="notice" role="status"></div></main><script src="/static/app.js?v=20261015-g"></script></body></html>
