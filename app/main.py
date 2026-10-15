@@ -28,6 +28,15 @@ LABELS = {"HCC", "ICC", "MET", "FNH", "HEM", "CYST", "OTHER", "NONE", "UNKNOWN"}
 app = FastAPI(title="web4syn Reader Study")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
+@app.middleware("http")
+async def disable_reader_cache(request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/") or request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 
 @contextmanager
 def db():
