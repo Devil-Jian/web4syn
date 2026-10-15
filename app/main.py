@@ -242,12 +242,12 @@ def get_owned_task(c, task_id, user):
 
 
 @app.get("/api/tasks/{task_id}")
-def task_detail(task_id: int, user=Depends(local_reviewer)):
+def task_detail(task_id: int, prefetch: bool = False, user=Depends(local_reviewer)):
     with db() as c:
         task = get_owned_task(c, task_id, user)
         if task["status"] == "submitted":
             return {"id": task_id, "module": task["module"], "status": "submitted"}
-        if task["status"] == "pending":
+        if task["status"] == "pending" and not prefetch:
             c.execute("UPDATE assignments SET status='opened', opened_at=? WHERE id=?",
                       (int(time.time()), task_id))
         images = c.execute("""SELECT id, phase FROM cases WHERE patient_code=? AND module=? AND source=?
@@ -256,7 +256,7 @@ def task_detail(task_id: int, user=Depends(local_reviewer)):
         if task["module"] == "quality":
             # Each quality assignment assesses exactly one 2D CECT image.
             images = images[:1]
-        return {"id": task_id, "module": task["module"], "status": "opened",
+        return {"id": task_id, "module": task["module"], "status": "opened" if not prefetch else task["status"],
                 "public_code": task["public_code"],
                 "images": [{"id": r["id"], "phase": r["phase"],
                             "url": f"/api/tasks/{task_id}/images/{r['id']}"} for r in images]}
