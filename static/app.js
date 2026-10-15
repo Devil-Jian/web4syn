@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const state={role:null,module:'quality',task:null,points:[],started:0,timer:null,urls:[],taskCache:{},prefetch:null,openSeq:0};
+const state={role:null,module:'quality',task:null,points:[],started:0,timer:null,urls:[],taskCache:{},prefetch:new Map(),prefetchBusy:0,prefetchQueue:[],prefetchGeneration:0,openSeq:0};
 const show=(id,on=true)=>$(id).hidden=!on;
 const notify=msg=>{const n=$('notice');n.textContent=msg;n.style.display='block';setTimeout(()=>n.style.display='none',4500)};
 async function request(path,opts={}){
@@ -11,7 +11,7 @@ async function request(path,opts={}){
 }
 async function json(path,opts={}){return(await request(path,opts)).json()}
 function resetImages(){state.urls.forEach(URL.revokeObjectURL);state.urls=[];$('images').replaceChildren()}
-function dropPrefetch(){state.prefetch=null}
+function dropPrefetch(){state.prefetchGeneration++;state.prefetch.clear();state.prefetchQueue=[]}
 function dashboard(){state.openSeq++;show('dashboard');show('tasklist',false);show('reader',false);resetImages();dropPrefetch()}
 function goList(){state.openSeq++;show('dashboard',false);show('tasklist');show('reader',false);clearInterval(state.timer);resetImages();dropPrefetch();loadTasks()}
 function boot(){dashboard()}
@@ -33,27 +33,53 @@ function nextTaskId(current){
  const index=pending.findIndex(t=>t.id===current);
  return index>=0?(pending[index+1]?.id??null):(pending[0]?.id??null);
 }
-// Keep at most one future task in memory. Images are fetched concurrently.
+// Prefetch up to 10 quality images or 5 diagnostic cases (4 phase images each).
+// Limit concurrent task loads to 2 to avoid flooding the tunnel / HDF5 reader.
+const prefetchLimit=()=>state.module==='quality'?10:5;
+async function fetchTaskImages(id){
+ const task=await json('/api/tasks/'+id);
+ if(!task.images?.length)throw Error('任务没有可展示的影像');
+ const imageBlobs=await Promise.all(task.images.map(async img=>(await request(img.url)).blob()));
+ return {task,imageBlobs};
+}
+function pumpPrefetch(){
+ while(state.prefetchBusy<2&&state.prefetchQueue.length){
+  const entry=state.prefetchQueue.shift();
+  if(entry.generation!==state.prefetchGeneration||!state.prefetch.has(entry.id))continue;
+  state.prefetchBusy++;
+  fetchTaskImages(entry.id).then(entry.resolve,entry.reject).finally(()=>{
+   state.prefetchBusy--;
+   pumpPrefetch();
+  });
+ }
+}
 function preloadTask(id){
- if(!id||state.prefetch?.id===id)return;
- const entry={id,promise:null};
- state.prefetch=entry;
- entry.promise=(async()=>{
-  const task=await json('/api/tasks/'+id);
-  const imageBlobs=await Promise.all(task.images.map(async image=>await(await request(image.url)).blob()));
-  return {task,imageBlobs};
- })();
- // Avoid unhandled promise rejection if the reviewer navigates away.
- entry.promise.catch(()=>{if(state.prefetch===entry)state.prefetch=null});
+ if(!id||state.prefetch.has(id))return;
+ let resolve,reject;
+ const promise=new Promise((ok,fail)=>{resolve=ok;reject=fail});
+ const entry={id,promise,resolve,reject,generation:state.prefetchGeneration};
+ state.prefetch.set(id,entry);
+ state.prefetchQueue.push(entry);
+ promise.catch(()=>{if(state.prefetch.get(id)===entry)state.prefetch.delete(id)});
+ pumpPrefetch();
+}
+function warmNextTasks(currentId){
+ const queue=pendingTasks();
+ const currentIndex=queue.findIndex(t=>t.id===currentId);
+ const ids=queue.slice(currentIndex<0?0:currentIndex+1,(currentIndex<0?0:currentIndex+1)+prefetchLimit()).map(t=>t.id);
+ // Only retain the lookahead window, never the displayed task.
+ for(const id of state.prefetch.keys())if(!ids.includes(id))state.prefetch.delete(id);
+ state.prefetchQueue=state.prefetchQueue.filter(e=>state.prefetch.has(e.id));
+ ids.forEach(preloadTask);
 }
 async function openTask(id){
  const seq=++state.openSeq;
  try{
-  const prepared=state.prefetch?.id===id
-   ?await state.prefetch.promise
-   :await (async()=>{const task=await json('/api/tasks/'+id);return {task,imageBlobs:await Promise.all(task.images.map(async i=>await(await request(i.url)).blob()))}})();
+  const prepared=state.prefetch.get(id)
+   ?await state.prefetch.get(id).promise
+   :await fetchTaskImages(id);
   if(seq!==state.openSeq)return;
-  state.prefetch=null;
+  state.prefetch.delete(id);
   resetImages();state.points=[];
   const {task,imageBlobs}=prepared;
   state.task=task;
@@ -83,7 +109,7 @@ async function openTask(id){
   panel.append(title,frame,tools);$('images').append(panel);
   });
   clearInterval(state.timer);state.started=Date.now();tick();state.timer=setInterval(tick,1000);
-  preloadTask(nextTaskId(id));
+  warmNextTasks(id);
  }catch(err){if(seq!==state.openSeq)return;notify(err.message);goList()}
 }
 $('clear-points').onclick=()=>{state.points=[];document.querySelectorAll('.point').forEach(x=>x.remove());$('points').textContent='已标记 0 个位置'};
