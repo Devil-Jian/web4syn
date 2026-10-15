@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const state={role:null,module:'quality',task:null,points:[],started:0,timer:null,urls:[],taskCache:{},prefetch:new Map(),prefetchBusy:0,prefetchQueue:[],prefetchGeneration:0,openSeq:0};
+const state={role:null,module:'quality',task:null,points:[],started:0,timer:null,urls:[],taskCache:{},prefetch:new Map(),prefetchBusy:0,prefetchQueue:[],prefetchGeneration:0,openSeq:0,prefetchTimer:null,prefetchPaused:false};
 const show=(id,on=true)=>$(id).hidden=!on;
 const notify=msg=>{const n=$('notice');n.textContent=msg;n.style.display='block';setTimeout(()=>n.style.display='none',4500)};
 async function request(path,opts={}){
@@ -22,6 +22,7 @@ function discardEntry(entry){
  if(entry.prepared)disposePrepared(entry.prepared);
 }
 function dropPrefetch(){
+ if(state.prefetchTimer!==null){clearTimeout(state.prefetchTimer);state.prefetchTimer=null}
  state.prefetchGeneration++;
  for(const entry of state.prefetch.values())discardEntry(entry);
  state.prefetch.clear();
@@ -140,11 +141,12 @@ async function decodeImageBlob(blob){
   throw err;
  }
 }
-async function fetchTaskImages(id){
- const task=await json('/api/tasks/'+id);
+async function fetchTaskImages(id,background=false){
+ const task=await json('/api/tasks/'+id+(background?'?prefetch=true':''));
  if(!task.images?.length)throw Error('任务没有可展示的影像');
  // Download phase images concurrently, then decode while the doctor is reading.
- const imageBlobs=await Promise.all(task.images.map(async item=>(await request(item.url)).blob()));
+ const imageBlobs=[];
+ for(const item of task.images)imageBlobs.push(await (await request(item.url)).blob());
  const imageAssets=[];
  try{
   // Decode one by one so failures can release all previously allocated URLs.
@@ -156,11 +158,12 @@ async function fetchTaskImages(id){
  }
 }
 function pumpPrefetch(){
- while(state.prefetchBusy<2&&state.prefetchQueue.length){
+ if(state.prefetchPaused||$('reader').hidden)return;
+ while(state.prefetchBusy<1&&state.prefetchQueue.length){
   const entry=state.prefetchQueue.shift();
   if(entry.generation!==state.prefetchGeneration||!state.prefetch.has(entry.id))continue;
   state.prefetchBusy++;
-  fetchTaskImages(entry.id).then(prepared=>{
+  fetchTaskImages(entry.id,true).then(prepared=>{
    if(entry.discarded||entry.generation!==state.prefetchGeneration){
     disposePrepared(prepared);
     entry.reject(new Error('Prefetch cancelled'));
@@ -197,6 +200,8 @@ function warmNextTasks(currentId){
  ids.forEach(preloadTask);
 }
 async function openTask(id){
+ if(state.prefetchTimer!==null){clearTimeout(state.prefetchTimer);state.prefetchTimer=null}
+ state.prefetchPaused=true;
  const seq=++state.openSeq;
  try{
   const entry=state.prefetch.get(id);
@@ -210,6 +215,8 @@ async function openTask(id){
   }
   if(seq!==state.openSeq){if(!entry)disposePrepared(prepared);return}
   if(entry)state.prefetch.delete(id);
+  if(entry){const opened=await json('/api/tasks/'+id);if(opened.status==='submitted')throw Error('该任务已提交');prepared.task=opened}
+  if(seq!==state.openSeq){if(!entry)disposePrepared(prepared);return}
   resetImages();state.points=[];
   const {task,imageAssets}=prepared;
   state.task=task;
@@ -241,9 +248,15 @@ async function openTask(id){
   });
   clearInterval(state.timer);state.started=Date.now();tick();state.timer=setInterval(tick,1000);
   // Keep a bounded cursor stream available without blocking image display.
+  state.prefetchPaused=false;
   requestAnimationFrame(()=>{if(seq===state.openSeq){
-   warmNextTasks(id);
-   if(pendingTasks().length<=8&&stream.hasMore)void appendStreamBatch().then(()=>{if(seq===state.openSeq)warmNextTasks(id)}).catch(console.warn);
+   state.prefetchTimer=setTimeout(()=>{
+    state.prefetchTimer=null;
+    if(seq!==state.openSeq||$('reader').hidden)return;
+    warmNextTasks(id);
+    if(pendingTasks().length<=8&&stream.hasMore)
+     void appendStreamBatch().then(()=>{if(seq===state.openSeq)warmNextTasks(id)}).catch(console.warn);
+   },1200);
   }});
  }catch(err){if(seq!==state.openSeq)return;notify('下一张图像加载失败：'+err.message);if(!state.task)goList()}
 }
@@ -314,6 +327,8 @@ let submitting=false;
 async function sendReview(payload){
  if(!state.task||submitting)return;
  submitting=true;
+ state.prefetchPaused=true;
+ if(state.prefetchTimer!==null){clearTimeout(state.prefetchTimer);state.prefetchTimer=null}
  const taskId=state.task.id;
  const submitButton=document.querySelector('#'+(state.task.module==='quality'?'quality-form':'diagnosis-form')+' button[type="submit"]');
  if(submitButton)submitButton.disabled=true;
@@ -342,6 +357,7 @@ async function sendReview(payload){
  finally{
   submitting=false;
   if(submitButton)submitButton.disabled=false;
+  if(!$('reader').hidden){state.prefetchPaused=false;pumpPrefetch()}
  }
 }
 $('quality-form').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target);sendReview({guessed_source:f.get('guessed_source'),quality_score:Number(f.get('quality_score'))})});
