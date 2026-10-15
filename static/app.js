@@ -33,9 +33,11 @@ function nextTaskId(current){
  const index=pending.findIndex(t=>t.id===current);
  return index>=0?(pending[index+1]?.id??null):(pending[0]?.id??null);
 }
-// Prefetch up to 10 quality images or 5 diagnostic cases (4 phase images each).
+// While the doctor reviews the current case, keep 5 upcoming quality images
+// or 3 upcoming diagnosis cases (each normally has NCCT + AP/PVP/DP) preloaded.
+// Once the next case is displayed, refill the sliding window in the background.
 // Limit concurrent task loads to 2 to avoid flooding the tunnel / HDF5 reader.
-const prefetchLimit=()=>state.module==='quality'?10:5;
+const prefetchLimit=()=>state.module==='quality'?5:3;
 async function fetchTaskImages(id){
  const task=await json('/api/tasks/'+id);
  if(!task.images?.length)throw Error('任务没有可展示的影像');
