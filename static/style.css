@@ -37,3 +37,8 @@
 .task-toolbar select{width:auto;min-width:130px;margin:0}
 .task-pagination{display:flex;align-items:center;justify-content:center;gap:22px;padding:24px 0 4px;color:#b7cbe2}
 @media(max-width:600px){.task-toolbar{align-items:stretch;flex-direction:column}.task-toolbar .task-filter{justify-content:space-between}.task-pagination{gap:10px}}
+
+/* Single-label diagnosis card: Chinese title and English abbreviation. */
+.choice-row.disease-grid .choice span{min-height:73px;gap:6px;padding:10px 4px}
+.choice-row.disease-grid .choice .disease-name{font-size:14px;line-height:1.3;font-weight:650}
+.choice-row.disease-grid .choice small{font-size:11px;letter-spacing:.35px}
