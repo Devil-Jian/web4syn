@@ -302,8 +302,8 @@ def submit(task_id: int, payload: dict, user=Depends(local_reviewer)):
         else:
             answer = DiagnosisAnswer.model_validate(payload).model_dump()
             diagnoses = answer["diagnoses"]
-            if len(diagnoses) > len(LABELS) or len(set(diagnoses)) != len(diagnoses):
-                raise HTTPException(422, "Duplicate or excessive diagnosis labels")
+            if len(diagnoses) > 1:
+                raise HTTPException(422, "Only one diagnosis label is allowed")
             if any(label not in LABELS for label in diagnoses):
                 raise HTTPException(422, "Invalid diagnosis")
             if answer["lesion_visible"] == "yes" and not diagnoses:
