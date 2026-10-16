@@ -377,7 +377,7 @@ function syncDiagnosisChoices(){
   box.disabled=uncertain;
   box.required=visibility==='yes'&&box.value==='1';
  }
- $('diagnosis-hint').textContent=noLesion?'不存在病灶：疾病标签不可选。':visibility==='yes'?'存在病灶：至少选择一种疾病标签。':'不确定：可选择疑似疾病标签。';
+ $('diagnosis-hint').textContent=noLesion?'不存在病灶：疾病标签不可选。':visibility==='yes'?'存在病灶：必须选择一个疾病标签。':'不确定：可选择一个疑似疾病标签。';
  const confidenceHint=$('confidence-hint');
  if(confidenceHint)confidenceHint.textContent=uncertain?'不确定病灶是否存在：无需填写置信度。':visibility==='yes'?'存在病灶：诊断置信度必选。':'不存在病灶：置信度可选。';
  if(noLesion){
@@ -393,7 +393,8 @@ $('diagnosis-form').addEventListener('submit',e=>{
  const f=new FormData(e.target);
  const visibility=f.get('lesion_visible'),diagnoses=f.getAll('diagnoses');
  const confidence=f.get('confidence');
- if(visibility==='yes'&&!diagnoses.length){notify('存在病灶时必须选择至少一种疾病标签');return}
+ if(diagnoses.length>1){notify('只能选择一个疾病标签');return}
+ if(visibility==='yes'&&!diagnoses.length){notify('存在病灶时必须选择一个疾病标签');return}
  if(visibility==='yes'&&!confidence){notify('存在病灶时必须选择诊断置信度');return}
  if(visibility==='no'&&diagnoses.length){notify('不存在病灶时不能选择疾病标签');return}
  sendReview({lesion_visible:visibility,diagnoses,confidence:confidence?Number(confidence):null,lesion_points:visibility==='no'?[]:[...state.points]});
