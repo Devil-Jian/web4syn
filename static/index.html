@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>web4syn · 临床评阅平台</title><link rel="stylesheet" href="/static/style.css?v=20261015-h"></head>
+<title>web4syn · 临床评阅平台</title><link rel="stylesheet" href="/static/style.css?v=20261016-a"></head>
 <body><header><div class="brand"><span class="brand-mark">W</span><span>web4syn <small>2D Clinical Reader Study</small></span></div><div id="who">本地评阅 · 无账户</div></header>
 <main>
 
@@ -29,17 +29,17 @@
 <label class="choice"><input type="radio" name="lesion_visible" value="no"><span>不存在</span></label>
 <label class="choice"><input type="radio" name="lesion_visible" value="unsure"><span>不确定</span></label>
 </div></fieldset>
-<fieldset class="rating-field" id="diagnosis-labels-field"><legend>主要疾病分类（可多选）</legend><div class="choice-row disease-grid"><label class="choice"><input type="checkbox" name="diagnoses" value="HCC"><span>HCC</span></label>
-<label class="choice"><input type="checkbox" name="diagnoses" value="ICC"><span>ICC</span></label>
-<label class="choice"><input type="checkbox" name="diagnoses" value="MET"><span>MET</span></label>
-<label class="choice"><input type="checkbox" name="diagnoses" value="FNH"><span>FNH</span></label>
-<label class="choice"><input type="checkbox" name="diagnoses" value="HEM"><span>HEM</span></label>
-<label class="choice"><input type="checkbox" name="diagnoses" value="CYST"><span>CYST</span></label>
-<label class="choice"><input type="checkbox" name="diagnoses" value="OTHER"><span>OTHER</span></label></div><p class="muted" id="diagnosis-hint">存在病灶时至少选择一种疾病；不存在病灶时无需选择。</p></fieldset><fieldset class="rating-field"><legend>诊断置信度（1–5级）</legend><p class="muted" id="confidence-hint">存在病灶时必选；不存在时可选；不确定时禁用。</p><div class="choice-row five">
+<fieldset class="rating-field" id="diagnosis-labels-field"><legend>主要疾病分类（单选）</legend><div class="choice-row disease-grid"><label class="choice"><input type="radio" name="diagnoses" value="HCC"><span><strong class="disease-name">肝细胞癌</strong><small>HCC</small></span></label>
+<label class="choice"><input type="radio" name="diagnoses" value="ICC"><span><strong class="disease-name">肝内胆管癌</strong><small>ICC</small></span></label>
+<label class="choice"><input type="radio" name="diagnoses" value="MET"><span><strong class="disease-name">肝转移瘤</strong><small>MET</small></span></label>
+<label class="choice"><input type="radio" name="diagnoses" value="FNH"><span><strong class="disease-name">局灶性结节性增生</strong><small>FNH</small></span></label>
+<label class="choice"><input type="radio" name="diagnoses" value="HEM"><span><strong class="disease-name">肝血管瘤</strong><small>HEM</small></span></label>
+<label class="choice"><input type="radio" name="diagnoses" value="CYST"><span><strong class="disease-name">肝囊肿</strong><small>CYST</small></span></label>
+<label class="choice"><input type="radio" name="diagnoses" value="OTHER"><span><strong class="disease-name">其他病灶</strong><small>OTHER</small></span></label></div><p class="muted" id="diagnosis-hint">存在病灶时必须选择一个疾病；不存在病灶时无需选择。</p></fieldset><fieldset class="rating-field"><legend>诊断置信度（1–5级）</legend><p class="muted" id="confidence-hint">存在病灶时必选；不存在时可选；不确定时禁用。</p><div class="choice-row five">
 <label class="choice"><input type="radio" name="confidence" value="1"><span><strong>1</strong><small>极低</small></span></label>
 <label class="choice"><input type="radio" name="confidence" value="2"><span><strong>2</strong><small>较低</small></span></label>
 <label class="choice"><input type="radio" name="confidence" value="3"><span><strong>3</strong><small>中等</small></span></label>
 <label class="choice"><input type="radio" name="confidence" value="4"><span><strong>4</strong><small>较高</small></span></label>
 <label class="choice"><input type="radio" name="confidence" value="5"><span><strong>5</strong><small>极高</small></span></label>
 </div></fieldset><div class="line"><span class="muted" id="points">已标记 0 个位置</span><button type="button" class="ghost" id="clear-points">清除标注</button></div><button>提交诊断</button></form></div></div></div>
-</section><div id="notice" role="status"></div></main><script src="/static/app.js?v=20261015-j"></script></body></html>
+</section><div id="notice" role="status"></div></main><script src="/static/app.js?v=20261016-a"></script></body></html>
