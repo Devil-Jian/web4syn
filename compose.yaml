@@ -10,16 +10,16 @@ services:
     restart: unless-stopped
     environment:
       WEB4SYN_DATA: /app/data
-      WEB4SYN_RCT_ADMIN_PASSWORD: \${WEB4SYN_RCT_ADMIN_PASSWORD:?Set_a_12_character_or_longer_admin_password_in_dot_env}
+      WEB4SYN_RCT_ADMIN_PASSWORD: ${WEB4SYN_RCT_ADMIN_PASSWORD:?Set_a_12_character_or_longer_admin_password_in_dot_env}
       WEB4SYN_ENABLE_LEGACY_DEMO: "0"
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
       - type: bind
-        source: \${WEB4SYN_DATA_PATH:-/var/lib/web4syn}
+        source: ${WEB4SYN_DATA_PATH:-/var/lib/web4syn}
         target: /app/data
       - type: bind
-        source: \${WEB4SYN_PACKS_PATH:-/home/ch4090/ytwillv2/zhongj/dataset/train_output/syn-final-1013/doctor_reading_packs}
+        source: ${WEB4SYN_PACKS_PATH:-/home/ch4090/ytwillv2/zhongj/dataset/train_output/syn-final-1013/doctor_reading_packs}
         target: /packs
         read_only: true
     healthcheck:
