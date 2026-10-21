@@ -290,6 +290,7 @@ el("diagnosis-form").onsubmit=async e=>{
     await api("/tasks/"+id+"/submit",{method:"POST",body:submitted});
     sessionStorage.removeItem(key);
     study.task=null;discardImages();visible("reading",false);
+    study.busy=false;
     await refreshReader();await startNext();
   }catch(err){message("提交未确认，当前任务保留。请检查网络后再次点击提交："+err.message,true);}
   finally{study.busy=false;el("submit-button").disabled=false;}
