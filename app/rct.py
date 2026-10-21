@@ -359,7 +359,7 @@ def allocation_plan(patients, doctors, seed):
     rng = random.Random(seed)
     n = len(patients)
     base, extra = divmod(n, 3)
-    targets = {arm: base + (i < extra) for i, arm in enumerate(ARMS)}
+    targets = {arm: base + (i >= len(ARMS) - extra) for i, arm in enumerate(ARMS)}
     remaining = targets.copy()
     by_center = defaultdict(list)
     for p in patients:
