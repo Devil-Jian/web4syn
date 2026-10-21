@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Web4Syn · Three-Arm Clinical Study</title>
+  <link rel="stylesheet" href="/static/rct.css?v=2">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="mark">W</span><div><strong>Web4Syn</strong><small>Three-Arm Clinical Study · v2</small></div></div>
+  <div class="topright"><span id="identity">未登录</span><button id="logout" class="quiet" hidden>退出登录</button></div>
+</header>
+<main>
+  <section class="login card" id="login-section">
+    <div class="eyebrow">SECURE STUDY ACCESS</div>
+    <h1>临床阅片研究平台</h1>
+    <p>医生独立阅片 · 单患者单次诊断 · 三臂随机分配</p>
+    <form id="login-form" class="stack">
+      <label>账号 <input name="username" autocomplete="username" required></label>
+      <label>密码 <input name="password" type="password" autocomplete="current-password" required></label>
+      <button type="submit">登录平台</button>
+    </form>
+  </section>
+
+  <section id="admin-section" hidden>
+    <div class="heading"><div><div class="eyebrow">STUDY ADMINISTRATION</div><h1>研究管理控制台</h1><p id="study-status"></p></div><button class="quiet" id="admin-refresh">刷新状态</button></div>
+    <div class="metrics" id="admin-metrics"></div>
+    <div class="admin-grid">
+      <article class="card">
+        <h2>01 · 研究配置</h2>
+        <p class="hint">正式随机前设定研究目标病例数，默认1600例。发布后不可修改。</p>
+        <form id="study-form" class="inline-form"><label>目标病例数 <input type="number" name="target" min="3" max="10000" value="1600" required></label><button>保存配置</button></form>
+      </article>
+      <article class="card">
+        <h2>02 · 新增医生</h2>
+        <form id="reader-form" class="stack compact">
+          <label>登录账号 <input name="username" autocomplete="off" pattern="[A-Za-z0-9_-]+" required></label>
+          <label>姓名/代号 <input name="display_name" required></label>
+          <label>资历 <select name="level"><option value="junior">初级</option><option value="intermediate">中级</option><option value="senior">高级</option></select></label>
+          <label>临时密码（≥12位） <input name="password" type="password" minlength="12" autocomplete="new-password" required></label>
+          <button>创建医生账号</button>
+        </form>
+        <div class="data-list" id="reader-list"></div>
+      </article>
+      <article class="card">
+        <h2>03 · 导入HDF5病例</h2>
+        <p class="hint">每行：患者代号, HDF5文件名, 数据中心。必须来自容器 /packs 且具备 NCCT + Real + Syn 四期影像。不要填写姓名或住院号。</p>
+        <form id="import-form" class="stack compact">
+          <label>CSV行（无表头或使用 patient_code,pack_filename,center 表头）<textarea name="rows" rows="7" placeholder="P0001,P0001.h5,GX&#10;P0002,P0002.h5,HX" required></textarea></label>
+          <button>检查并导入病例</button>
+        </form>
+        <button class="quiet" id="packs-button">查看挂载的HDF5文件名</button>
+        <pre class="scrollbox" id="pack-list" hidden></pre>
+      </article>
+      <article class="card">
+        <h2>04 · 随机化 / 发布</h2>
+        <p class="hint">要求患者数量与目标一致，且存在6–9名医生。随机化后不可重抽。请先检查患者清单与医生资历。</p>
+        <form id="random-form" class="stack compact">
+          <label>可选随机种子（留空自动生成）<input name="seed" autocomplete="off" placeholder="自动生成安全随机种子"></label>
+          <button class="danger-outline">执行1:1:1随机化（不可撤销）</button>
+        </form>
+        <button id="publish-button">发布阅片任务</button>
+        <p id="rand-result" class="hint"></p>
+      </article>
+      <article class="card wide">
+        <h2>05 · 任务进度与数据库锁定</h2>
+        <div id="progress-table" class="data-list"></div>
+        <div class="actions">
+          <button class="quiet" id="progress-refresh">刷新进度</button>
+          <button class="danger-outline" id="lock-button">全部完成后锁定研究</button>
+          <button id="export-button">导出锁定数据CSV</button>
+        </div>
+        <p class="hint">解盲导出仅在数据库锁定后启用。平台不向医生展示组别与其他医生结果。</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="reader-section" hidden>
+    <div class="heading"><div><div class="eyebrow">INDEPENDENT READING</div><h1>医生阅片工作台</h1><p>每名患者仅由一名医生评阅一次；提交后锁定。</p></div><div><span id="reader-summary"></span><button id="continue-button">继续阅片</button></div></div>
+    <div id="reader-idle" class="card"><h2>待阅片病例</h2><p>仅在开始时加载当前任务；已完成的病例无法再次打开。</p></div>
+    <section id="reading" hidden>
+      <div class="reading-head"><div><small id="case-number">当前匿名病例</small><strong id="reading-status">独立影像诊断</strong></div><div class="tools">
+        <label>窗下限 <input id="window-lo" type="number" min="-1200" max="2999" value="-160"></label>
+        <label>窗上限 <input id="window-hi" type="number" min="-1199" max="3000" value="240"></label>
+        <button class="quiet" id="window-apply">应用窗位</button><button class="quiet" id="window-reset">腹窗重置</button>
+      </div></div>
+      <div class="reading-layout">
+        <div class="image-panel">
+          <div id="phase-grid" class="phase-grid"></div>
+          <div class="slice-controls"><button class="quiet" id="prev-slice">◀ 上一层</button>
+            <input id="slice-range" type="range" min="0" max="0" value="0">
+            <span id="slice-position">0 / 0</span>
+            <button class="quiet" id="next-slice">下一层 ▶</button>
+          </div>
+          <p class="hint">鼠标滚轮或 ↑/↓ 切换同步切片；点击期相可单独放大。窗位单位HU。</p>
+        </div>
+        <aside class="diagnosis card">
+          <h2>临床诊断评价</h2>
+          <form id="diagnosis-form" class="stack">
+            <fieldset><legend>1 · 是否存在肝脏病灶</legend><div class="choices"><label><input type="radio" name="lesion_visible" value="yes" required> 存在</label><label><input type="radio" name="lesion_visible" value="no"> 不存在</label><label><input type="radio" name="lesion_visible" value="unsure"> 不确定</label></div></fieldset>
+            <fieldset id="diagnosis-field"><legend>2 · 主要疾病类型（单选）</legend><div class="diseases">
+              <label><input type="radio" name="diagnosis" value="HCC"> 肝细胞癌 <small>HCC</small></label>
+              <label><input type="radio" name="diagnosis" value="ICC"> 肝内胆管癌 <small>ICC</small></label>
+              <label><input type="radio" name="diagnosis" value="MET"> 肝转移瘤 <small>MET</small></label>
+              <label><input type="radio" name="diagnosis" value="FNH"> 局灶性结节性增生 <small>FNH</small></label>
+              <label><input type="radio" name="diagnosis" value="HEM"> 肝血管瘤 <small>HEM</small></label>
+              <label><input type="radio" name="diagnosis" value="CYST"> 肝囊肿 <small>CYST</small></label>
+              <label><input type="radio" name="diagnosis" value="OTHER"> 其他病灶 <small>OTHER</small></label>
+            </div></fieldset>
+            <fieldset id="risk-field"><legend>3 · 恶性风险（1–5级）</legend><div class="choices risks"><label><input type="radio" name="malignancy_risk" value="1"> 1</label><label><input type="radio" name="malignancy_risk" value="2"> 2</label><label><input type="radio" name="malignancy_risk" value="3"> 3</label><label><input type="radio" name="malignancy_risk" value="4"> 4</label><label><input type="radio" name="malignancy_risk" value="5"> 5</label></div></fieldset>
+            <button type="submit" id="submit-button">提交并进入下一例</button>
+            <p class="hint">无需二次确认。保存成功后病例不可修改；断网时保留待同步结果。</p>
+          </form>
+        </aside>
+      </div>
+    </section>
+  </section>
+  <div id="notification" role="status" aria-live="polite"></div>
+</main>
+<script src="/static/rct.js?v=2" defer></script>
+</body></html>
