@@ -46,7 +46,7 @@ When migrating from an existing container on port 8000, stop the old container a
 1. Set the target to 1600 and register 6–9 doctors, with correct reader levels.
 2. Prepare anonymized manifest CSV rows in the format: patient_code,pack_filename,center .
 3. Import all HDF5 packs and verify they have both real and synthetic contrast data.
-4. Run randomization once, obtaining precisely NCCT=534, AI=533, REAL=533 when 1600 subjects, because remainder is assigned in fixed arm order (actual API returns counts). The SHA256 commitment of the random seed is logged. To reproduce allocations, supply and privately retain a known seed.
+4. Run randomization once, obtaining precisely NCCT=533, AI=533, REAL=534 when 1600 subjects, because the remainder is assigned to the final arm (actual API returns counts). The SHA256 commitment of the random seed is logged. To reproduce allocations, supply and privately retain a known seed.
 5. Verify doctor workloads and publish task assignments.
 6. Doctors complete their own queues. Cases cannot be reopened after confirmed submission.
 7. Once all submitted, lock the study and export CSV for independent statistical analysis.
