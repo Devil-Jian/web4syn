@@ -1,0 +1,29 @@
+name: web4syn
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: web4syn:reader-v1
+    container_name: web4syn-reader
+    restart: unless-stopped
+    environment:
+      WEB4SYN_DATA: /app/data
+    # Safe localhost binding for development/SSH port-forwarding.
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # Persistent evaluation database and application uploads (outside git checkout).
+      - /var/lib/web4syn:/app/data
+      # Existing HDF5 patient packs, read-only. Do not copy into image.
+      - /home/ch4090/ytwillv2/zhongj/dataset/train_output/syn-final-1013/doctor_reading_packs:/packs:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=4)"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    init: true
