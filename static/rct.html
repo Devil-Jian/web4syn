@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Web4Syn · Three-Arm Clinical Study</title>
-  <link rel="stylesheet" href="/static/rct.css?v=2">
+  <link rel="stylesheet" href="/static/rct.css?v=4">
 </head>
 <body>
 <header class="topbar">
@@ -79,20 +79,11 @@
     <div class="heading"><div><div class="eyebrow">INDEPENDENT READING</div><h1>医生阅片工作台</h1><p>每名患者仅由一名医生评阅一次；提交后锁定。</p></div><div><span id="reader-summary"></span><button id="continue-button">继续阅片</button></div></div>
     <div id="reader-idle" class="card"><h2>待阅片病例</h2><p>仅在开始时加载当前任务；已完成的病例无法再次打开。</p></div>
     <section id="reading" hidden>
-      <div class="reading-head"><div><small id="case-number">当前匿名病例</small><strong id="reading-status">独立影像诊断</strong></div><div class="tools">
-        <label>窗下限 <input id="window-lo" type="number" min="-1200" max="2999" value="-160"></label>
-        <label>窗上限 <input id="window-hi" type="number" min="-1199" max="3000" value="240"></label>
-        <button class="quiet" id="window-apply">应用窗位</button><button class="quiet" id="window-reset">腹窗重置</button>
-      </div></div>
+      <div class="reading-head"><div><small id="case-number">当前匿名病例</small><strong id="reading-status">独立影像诊断</strong></div></div>
       <div class="reading-layout">
         <div class="image-panel">
           <div id="phase-grid" class="phase-grid"></div>
-          <div class="slice-controls"><button class="quiet" id="prev-slice">◀ 上一层</button>
-            <input id="slice-range" type="range" min="0" max="0" value="0">
-            <span id="slice-position">0 / 0</span>
-            <button class="quiet" id="next-slice">下一层 ▶</button>
-          </div>
-          <p class="hint">鼠标滚轮或 ↑/↓ 切换同步切片；点击期相可单独放大。窗位单位HU。</p>
+          <div class="slice-counter" id="slice-position">0 / 0</div>
         </div>
         <aside class="diagnosis card">
           <h2>临床诊断评价</h2>
@@ -109,7 +100,7 @@
             </div></fieldset>
             <fieldset id="risk-field"><legend>3 · 恶性风险（1–5级）</legend><div class="choices risks"><label><input type="radio" name="malignancy_risk" value="1"> 1</label><label><input type="radio" name="malignancy_risk" value="2"> 2</label><label><input type="radio" name="malignancy_risk" value="3"> 3</label><label><input type="radio" name="malignancy_risk" value="4"> 4</label><label><input type="radio" name="malignancy_risk" value="5"> 5</label></div></fieldset>
             <button type="submit" id="submit-button">提交并进入下一例</button>
-            <p class="hint">无需二次确认。保存成功后病例不可修改；断网时保留待同步结果。</p>
+            
           </form>
         </aside>
       </div>
@@ -117,5 +108,5 @@
   </section>
   <div id="notification" role="status" aria-live="polite"></div>
 </main>
-<script src="/static/rct.js?v=3" defer></script>
+<script src="/static/rct.js?v=4" defer></script>
 </body></html>
