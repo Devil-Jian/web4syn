@@ -1,3 +1,20 @@
+# Web4Syn v2 — Three-Arm RW-RCT Reading Platform
+
+This branch adds an authenticated, randomized three-arm patient-level reader workflow **without modifying the historical V1 review database**.
+
+- Study arms: NCCT (533) / NCCT + synthetic CECT (533) / NCCT + real CECT (534), for 1600 participants.
+- 6–9 participating readers, exactly one patient-to-reader allocation and one official read per patient.
+- Admin control panel, strict image authorization, 2D HDF5 slice viewer, single-submit diagnostic form, locked CSV export.
+- Start here: [docs/RCT_V2.md](docs/RCT_V2.md). At first boot configure the required administrator password and HDF5 mount path from [.env.example](.env.example).
+- Browser entry: /rct (also the default home page in this branch).
+- Test command: python -m pytest -q (after installing requirements-dev.txt).
+
+**Important:** The project display name does not imply that retrospective randomized reader assessments qualify as a prospective real-world clinical RCT. Prospective interventions require their own ethics, patient safety, trial registration and outcome workflows.
+
+---
+
+## Historical V1 documentation
+
 # web4syn — 2D Virtual CECT Clinical Reader Study
 
 A lightweight web application for **blinded two-dimensional clinical reader studies**.
