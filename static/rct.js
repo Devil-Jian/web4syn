@@ -38,10 +38,11 @@ async function enter() {
 }
 el("login-form").onsubmit=async event=>{
   event.preventDefault();
+  const form=event.currentTarget;
   try {
-    const result=await api("/auth/login",{method:"POST",body:formData(event.currentTarget)});
+    const result=await api("/auth/login",{method:"POST",body:formData(form)});
     study.token=result.token;sessionStorage.setItem("rct-token",result.token);
-    event.currentTarget.reset();await enter();
+    form.reset();await enter();
   } catch(err) { message(err.message,true); }
 };
 el("logout").onclick=async()=>{
@@ -101,8 +102,9 @@ el("study-form").onsubmit=async e=>{
 };
 el("reader-form").onsubmit=async e=>{
   e.preventDefault();
-  try{await api("/admin/readers",{method:"POST",body:formData(e.currentTarget)});
-    e.currentTarget.reset();message("医生账户已创建");await refreshAdmin();}
+  const form=e.currentTarget;
+  try{await api("/admin/readers",{method:"POST",body:formData(form)});
+    form.reset();message("医生账户已创建");await refreshAdmin();}
   catch(err){message(err.message,true);}
 };
 el("packs-button").onclick=async()=>{
@@ -113,7 +115,8 @@ el("packs-button").onclick=async()=>{
 };
 el("import-form").onsubmit=async e=>{
   e.preventDefault();
-  const lines=e.currentTarget.elements.rows.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  const form=e.currentTarget;
+  const lines=form.elements.rows.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
   const patients=[];
   for(const line of lines) {
     if(line.toLowerCase()==="patient_code,pack_filename,center")continue;
@@ -125,7 +128,7 @@ el("import-form").onsubmit=async e=>{
   if(!confirm("导入 "+patients.length+" 名患者？请确认数据已匿名化。"))return;
   try{
     const data=await api("/admin/patients/import",{method:"POST",body:{patients}});
-    message("成功导入 "+data.imported+" 名患者");e.currentTarget.reset();await refreshAdmin();
+    message("成功导入 "+data.imported+" 名患者");form.reset();await refreshAdmin();
   }catch(err){message(err.message,true);}
 };
 el("random-form").onsubmit=async e=>{
