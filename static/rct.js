@@ -1,7 +1,7 @@
 "use strict";
 const el = id => document.getElementById(id);
 const study = { token: sessionStorage.getItem("rct-token"), user: null, task: null,
-                z: 0, lo: -160, hi: 240, images: new Map(), generation: 0,
+                z: 0, lo: -160, hi: 240, images: new Map(), generation: 0, transforms: new Map(),
                 startTime: 0, busy: false, expanded: null };
 
 function visible(id, show) { el(id).hidden = !show; }
@@ -167,7 +167,7 @@ async function refreshReader(){
 }
 function discardImages() {
   study.generation++;for(const url of study.images.values())URL.revokeObjectURL(url);
-  study.images.clear();study.expanded=null;
+  study.images.clear();study.expanded=null;study.transforms.clear();
 }
 async function startNext(){
   if(study.busy)return;
@@ -178,11 +178,8 @@ async function startNext(){
     discardImages();
     const task=await api("/tasks/"+response.task.id);
     study.task=task;study.z=Math.floor(task.depth/2);study.lo=-160;study.hi=240;
-    el("window-lo").value=-160;el("window-hi").value=240;
     el("case-number").textContent=task.public_code;
     el("reading-status").textContent="单次独立诊断 · 阅片中";
-    el("slice-range").max=Math.max(0,task.depth-1);
-    el("slice-range").value=study.z;
     el("diagnosis-form").reset();syncDiagnosisFields();
     visible("reading",true);visible("reader-idle",false);
     const grid=el("phase-grid");grid.replaceChildren();
@@ -192,10 +189,31 @@ async function startNext(){
       const heading=document.createElement("span");heading.textContent=phase;
       const img=document.createElement("img");img.alt=phase+" CT";
       pane.append(heading,img);
-      pane.onclick=()=>{study.expanded=study.expanded===phase?null:phase;
+      pane.addEventListener("dblclick",event=>{
+        event.preventDefault();
+        study.expanded=study.expanded===phase?null:phase;
         document.querySelectorAll(".phase").forEach(node=>node.classList.toggle("expanded",node.dataset.phase===study.expanded));
         grid.classList.toggle("focus",!!study.expanded);
-      };
+        if(study.expanded)setZoom(phase,Math.max(1.7,transformFor(phase).zoom));
+      });
+      let drag=null;
+      pane.addEventListener("pointerdown",event=>{
+        if(event.button!==0)return;
+        const t=transformFor(phase);
+        drag={x:event.clientX,y:event.clientY,panX:t.x,panY:t.y};
+        pane.setPointerCapture(event.pointerId);
+      });
+      pane.addEventListener("pointermove",event=>{
+        if(!drag)return;
+        const t=transformFor(phase);
+        t.x=drag.panX+event.clientX-drag.x;
+        t.y=drag.panY+event.clientY-drag.y;
+        applyTransform(phase);
+      });
+      const endDrag=()=>{drag=null;};
+      pane.addEventListener("pointerup",endDrag);
+      pane.addEventListener("pointercancel",endDrag);
+      pane.addEventListener("lostpointercapture",endDrag);
       grid.append(pane);
     });
     study.startTime=Date.now();
@@ -209,7 +227,6 @@ async function renderImages(){
   const seq=++study.generation;
   const task=study.task, z=study.z;
   el("slice-position").textContent=(z+1)+" / "+task.depth;
-  el("slice-range").value=z;
   await Promise.all(task.phases.map(async phase=>{
     const pane=[...document.querySelectorAll(".phase")].find(node=>node.dataset.phase===phase);
     const img=pane?.querySelector("img");if(!img)return;
@@ -238,25 +255,34 @@ function moveSlice(delta){
   if(!study.task)return;
   study.z=Math.min(study.task.depth-1,Math.max(0,study.z+delta));renderImages();
 }
-el("prev-slice").onclick=()=>moveSlice(-1);
-el("next-slice").onclick=()=>moveSlice(1);
-el("slice-range").oninput=e=>{study.z=Number(e.target.value);renderImages();};
-el("phase-grid").addEventListener("wheel",e=>{if(!study.task)return;e.preventDefault();moveSlice(e.deltaY>0?1:-1);},{passive:false});
+function transformFor(phase){
+  if(!study.transforms.has(phase))study.transforms.set(phase,{zoom:1,x:0,y:0});
+  return study.transforms.get(phase);
+}
+function applyTransform(phase){
+  const pane=[...document.querySelectorAll(".phase")].find(node=>node.dataset.phase===phase);
+  const img=pane?.querySelector("img");if(!img)return;
+  const t=transformFor(phase);
+  img.style.transform="translate("+t.x+"px, "+t.y+"px) scale("+t.zoom+")";
+}
+function setZoom(phase,value){
+  const t=transformFor(phase);
+  t.zoom=Math.max(1,Math.min(6,value));
+  if(t.zoom===1){t.x=0;t.y=0;}
+  applyTransform(phase);
+}
+el("phase-grid").addEventListener("wheel",e=>{
+  if(!study.task)return;
+  e.preventDefault();
+  const pane=e.target.closest(".phase");
+  if(e.ctrlKey||e.metaKey||e.shiftKey){
+    if(pane)setZoom(pane.dataset.phase,transformFor(pane.dataset.phase).zoom*(e.deltaY<0?1.15:1/1.15));
+  }else moveSlice(e.deltaY>0?1:-1);
+},{passive:false});
 document.addEventListener("keydown",e=>{
   if(!study.task||el("reading").hidden||["INPUT","TEXTAREA","SELECT"].includes(document.activeElement?.tagName))return;
   if(e.key==="ArrowUp"||e.key==="ArrowDown"){e.preventDefault();moveSlice(e.key==="ArrowDown"?1:-1);}
 });
-el("window-apply").onclick=()=>{
-  const lo=Number(el("window-lo").value),hi=Number(el("window-hi").value);
-  if(!Number.isFinite(lo)||!Number.isFinite(hi)||lo< -1200||hi>3000||hi-lo<1){
-    message("窗位范围无效",true);return;
-  }
-  study.lo=lo;study.hi=hi;renderImages();
-};
-el("window-reset").onclick=()=>{
-  el("window-lo").value=-160;el("window-hi").value=240;
-  study.lo=-160;study.hi=240;renderImages();
-};
 function syncDiagnosisFields(){
   const form=el("diagnosis-form");
   const present=form.querySelector('input[name="lesion_visible"]:checked')?.value;
