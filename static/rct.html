@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>评阅系统</title>
-  <link rel="stylesheet" href="/static/rct.css?v=7">
+  <link rel="stylesheet" href="/static/rct.css?v=8">
 </head>
 <body>
 <header class="topbar">
@@ -141,10 +141,15 @@
   </section>
 
   <section id="reader-section" hidden>
-    <div class="heading"><div><div class="eyebrow">INDEPENDENT READING</div><h1>医生阅片工作台</h1><p>每名患者仅由一名医生评阅一次；提交后锁定。</p></div><div><span id="reader-summary"></span><button id="continue-button">继续阅片</button></div></div>
-    <div id="reader-idle" class="card"><h2>待阅片病例</h2><p>仅在开始时加载当前任务；已完成的病例无法再次打开。</p></div>
+    <div id="reader-idle" class="card">
+      <span id="reader-summary"></span>
+      <button id="continue-button">开始 / 继续阅片</button>
+    </div>
     <section id="reading" hidden>
-      <div class="reading-head"><div><small id="case-number">当前匿名病例</small><strong id="reading-status">独立影像诊断</strong></div></div>
+      <div class="reading-head">
+        <strong id="case-number">CASE-</strong>
+        <span class="reading-timer">评阅时间 <strong id="reading-elapsed">00:00</strong></span>
+      </div>
       <div class="reading-layout">
         <div class="image-panel">
           <div id="phase-grid" class="phase-grid"></div>
@@ -155,13 +160,13 @@
           <form id="diagnosis-form" class="stack">
             <fieldset><legend>1 · 是否存在肝脏病灶</legend><div class="choices"><label><input type="radio" name="lesion_visible" value="yes" required> 存在</label><label><input type="radio" name="lesion_visible" value="no"> 不存在</label><label><input type="radio" name="lesion_visible" value="unsure"> 不确定</label></div></fieldset>
             <fieldset id="diagnosis-field"><legend>2 · 主要疾病类型（单选）</legend><div class="diseases">
-              <label><input type="radio" name="diagnosis" value="HCC"> 肝细胞癌 <small>HCC</small></label>
-              <label><input type="radio" name="diagnosis" value="ICC"> 肝内胆管癌 <small>ICC</small></label>
-              <label><input type="radio" name="diagnosis" value="MET"> 肝转移瘤 <small>MET</small></label>
-              <label><input type="radio" name="diagnosis" value="FNH"> 局灶性结节性增生 <small>FNH</small></label>
-              <label><input type="radio" name="diagnosis" value="HEM"> 肝血管瘤 <small>HEM</small></label>
-              <label><input type="radio" name="diagnosis" value="CYST"> 肝囊肿 <small>CYST</small></label>
-              <label><input type="radio" name="diagnosis" value="OTHER"> 其他病灶 <small>OTHER</small></label>
+              <label class="disease-option"><input type="radio" name="diagnosis" value="HCC"><span class="disease-name">肝细胞癌</span><small>HCC</small></label>
+              <label class="disease-option"><input type="radio" name="diagnosis" value="ICC"><span class="disease-name">肝内胆管癌</span><small>ICC</small></label>
+              <label class="disease-option"><input type="radio" name="diagnosis" value="MET"><span class="disease-name">肝转移瘤</span><small>MET</small></label>
+              <label class="disease-option"><input type="radio" name="diagnosis" value="FNH"><span class="disease-name">局灶性结节性增生</span><small>FNH</small></label>
+              <label class="disease-option"><input type="radio" name="diagnosis" value="HEM"><span class="disease-name">肝血管瘤</span><small>HEM</small></label>
+              <label class="disease-option"><input type="radio" name="diagnosis" value="CYST"><span class="disease-name">肝囊肿</span><small>CYST</small></label>
+              <label class="disease-option"><input type="radio" name="diagnosis" value="OTHER"><span class="disease-name">其他病灶<span class="disease-example">如：钙化灶、肝硬化、胆管结石等</span></span><small>OTHER</small></label>
             </div></fieldset>
             <fieldset id="risk-field"><legend>3 · 恶性风险（1–5级）</legend><div class="choices risks"><label><input type="radio" name="malignancy_risk" value="1"> 1</label><label><input type="radio" name="malignancy_risk" value="2"> 2</label><label><input type="radio" name="malignancy_risk" value="3"> 3</label><label><input type="radio" name="malignancy_risk" value="4"> 4</label><label><input type="radio" name="malignancy_risk" value="5"> 5</label></div></fieldset>
             <button type="submit" id="submit-button">提交并进入下一例</button>
@@ -173,5 +178,5 @@
   </section>
   <div id="notification" role="status" aria-live="polite"></div>
 </main>
-<script src="/static/rct.js?v=15" defer></script>
+<script src="/static/rct.js?v=16" defer></script>
 </body></html>
