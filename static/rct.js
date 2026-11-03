@@ -94,6 +94,9 @@ async function refreshAdmin() {
   el("publish-button").disabled=!draft||info.tasks!==info.target;
   el("lock-button").disabled=info.status!=="published";
   el("export-button").disabled=info.status!=="locked";
+  visible("test-reset-panel", !!info.test_reset_enabled && info.status!=="locked");
+  el("test-reset-button").disabled=info.tasks===0 && info.patients===0 && !datasetUI.frozen;
+
 }
 el("admin-refresh").onclick=()=>refreshAdmin().catch(err=>message(err.message,true));
 el("progress-refresh").onclick=()=>refreshAdmin().catch(err=>message(err.message,true));
@@ -136,6 +139,24 @@ el("export-button").onclick=async()=>{
     const a=document.createElement("a");a.href=url;a.download="rct_results.csv";a.click();
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   }catch(err){message(err.message,true);}
+};
+
+el("test-reset-button").onclick=async()=>{
+  const typed=prompt("此操作将清除本轮研究任务及所有诊断结果（会先备份数据库）。\n请输入 RESET TEST STUDY 确认：","");
+  if(typed!=="RESET TEST STUDY"){if(typed!==null)message("确认文字不匹配，未执行重置",true);return;}
+  const password=prompt("请输入当前管理员密码以确认重置：","");
+  if(!password)return;
+  const button=el("test-reset-button");
+  button.disabled=true;
+  try{
+    const result=await api("/admin/reset-test-study",{method:"POST",body:{confirm:typed,password}});
+    el("rand-result").textContent="";
+    datasetUI.page=1;datasetUI.selected.clear();datasetUI.preview=null;
+    visible("dataset-preview",false);
+    await refreshAdmin();
+    message("研究已恢复草稿。清除任务 "+result.removed_tasks+"、结果 "+result.removed_results+"；备份："+result.backup_name);
+  }catch(e){message(e.message,true);}
+  finally{button.disabled=false;}
 };
 
 
