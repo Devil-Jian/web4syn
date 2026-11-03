@@ -113,6 +113,12 @@
           <button id="export-button">导出锁定数据CSV</button>
         </div>
         <p class="hint">解盲导出仅在数据库锁定后启用。平台不向医生展示组别与其他医生结果。</p>
+        <div class="round-management">
+          <h3>本轮任务管理</h3>
+          <p class="hint">不必等待所有医生完成。强制结束会立即停止本轮阅片，把已完成结果及未完成分配归档，然后返回可发布下一轮的状态。</p>
+          <button id="end-round-button" type="button" class="danger-outline" hidden>强制结束本轮并开启下一轮</button>
+          <div class="data-list" id="round-archives"></div>
+        </div>
         <div id="test-reset-panel" class="test-reset-panel" hidden>
           <h3>测试研究重置</h3>
           <p class="hint">仅测试环境：重置前备份数据库，清除本轮任务、评阅结果和研究队列；保留医生账号、HDF5索引、排除记录及操作审计。已正式锁定的研究不可重置。</p>
@@ -155,5 +161,5 @@
   </section>
   <div id="notification" role="status" aria-live="polite"></div>
 </main>
-<script src="/static/rct.js?v=9" defer></script>
+<script src="/static/rct.js?v=10" defer></script>
 </body></html>
