@@ -56,3 +56,9 @@
 #risk-field .risks{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;flex-wrap:nowrap}
 #risk-field .risks label{min-width:0;justify-content:center;padding:9px 3px;white-space:nowrap}
 @media(max-width:650px){#risk-field .risks{grid-template-columns:repeat(5,minmax(0,1fr))}}
+
+/* Four-step reading form: nature is an independent diagnosis, not derived from risk. */
+.nature-choices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.nature-choices label{justify-content:center;white-space:nowrap;padding:10px 5px}
+.risk-scale-hint{margin:0 0 8px;color:#678197;font-size:11px;line-height:1.5;text-align:center}
+#nature-field:disabled,#diagnosis-field:disabled,#risk-field:disabled{opacity:.48}
