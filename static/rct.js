@@ -88,6 +88,7 @@ async function refreshAdmin() {
   el("study-form").querySelector("button").disabled=!draft||info.tasks>0;
   el("reader-form").querySelector("button").disabled=!draft||info.tasks>0;
   await loadDatasetStatus();
+  el("study-form").querySelector("button").disabled ||= datasetUI.frozen;
   await loadDatasetPage();
   el("random-form").querySelector("button").disabled=!draft||info.tasks>0;
   el("publish-button").disabled=!draft||info.tasks!==info.target;
@@ -139,7 +140,7 @@ el("export-button").onclick=async()=>{
 
 
 /* Candidate file index; never communicates source labels or paths to reader views. */
-const datasetUI={page:1,pageSize:50,total:0,selected:new Set(),frozen:false,preview:null};
+const datasetUI={page:1,pageSize:50,total:0,selected:new Set(),frozen:false,preview:null,poll:null};
 async function loadDatasetStatus(){
   const data=await api("/admin/dataset/status");
   datasetUI.frozen=!!data.scan.frozen_at||data.study_status!=="draft";
@@ -151,6 +152,10 @@ async function loadDatasetStatus(){
   el("dataset-freeze").disabled=datasetUI.frozen||data.scan.status!=="idle"||!counts.included;
   el("dataset-exclude").disabled=datasetUI.frozen;
   el("dataset-restore").disabled=datasetUI.frozen;
+  clearTimeout(datasetUI.poll);
+  if(data.scan.status==="running"){
+    datasetUI.poll=setTimeout(()=>refreshAdmin().catch(e=>message(e.message,true)),1500);
+  }
   return data;
 }
 function datasetTextCell(row,text){const td=document.createElement("td");td.textContent=String(text??"—");row.append(td);return td;}
