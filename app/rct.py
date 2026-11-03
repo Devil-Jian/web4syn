@@ -192,7 +192,6 @@ class Credentials(BaseModel):
 class ReaderRegistration(BaseModel):
     username: str = Field(min_length=3, max_length=80)
     display_name: str = Field(min_length=1, max_length=80)
-    level: Literal["junior", "intermediate", "senior"]
     password: str = Field(min_length=12, max_length=256)
 
 
@@ -205,7 +204,7 @@ class ReaderCreate(BaseModel):
 
 class ReaderUpdate(BaseModel):
     display_name: str = Field(min_length=1, max_length=80)
-    level: Literal["junior", "intermediate", "senior"]
+    level: Literal["junior", "intermediate", "senior"] | None = None
 
 
 class ReaderStatusUpdate(BaseModel):
@@ -312,7 +311,7 @@ def register_reader(payload: ReaderRegistration):
             cursor=c.execute("""INSERT INTO rct_users
               (username,password_hash,role,display_name,level,enabled,registration_status)
               VALUES(?,?,'reader',?,?,0,'pending')""",
-              (username,password_hash(payload.password),display_name,payload.level))
+              (username,password_hash(payload.password),display_name,None))
         except sqlite3.IntegrityError:
             raise HTTPException(409,"Username already exists")
         audit(c,None,"reader_registration_requested",{"reader_id":cursor.lastrowid})
