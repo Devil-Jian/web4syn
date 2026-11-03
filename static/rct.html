@@ -20,6 +20,21 @@
       <label>密码 <input name="password" type="password" autocomplete="current-password" required></label>
       <button type="submit">登录平台</button>
     </form>
+    <button type="button" class="quiet auth-link" id="show-register">医生注册账号</button>
+    <div id="registration-panel" hidden>
+      <h2>医生注册</h2>
+      <p class="hint">提交后由研究管理员审核。审核通过后可使用注册账号登录并参加已分配的阅片任务。</p>
+      <form id="registration-form" class="stack" autocomplete="off">
+        <label>登录账号（至少3位字母、数字或下划线）<input name="username" required minlength="3" maxlength="80" pattern="[A-Za-z0-9_-]+" autocomplete="username"></label>
+        <label>姓名或阅片代号 <input name="display_name" maxlength="80" required></label>
+        <label>医生资历 <select name="level"><option value="junior">初级</option><option value="intermediate">中级</option><option value="senior">高级</option></select></label>
+        <label>设置密码（至少12位）<input name="password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label>
+        <label>确认密码 <input name="confirm_password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label>
+        <button type="submit">提交注册申请</button>
+        <button type="button" id="cancel-register" class="quiet">返回登录</button>
+      </form>
+      <p id="registration-result" class="hint" role="status"></p>
+    </div>
   </section>
 
   <section id="admin-section" hidden>
@@ -161,5 +176,5 @@
   </section>
   <div id="notification" role="status" aria-live="polite"></div>
 </main>
-<script src="/static/rct.js?v=10" defer></script>
+<script src="/static/rct.js?v=11" defer></script>
 </body></html>
