@@ -51,6 +51,7 @@ el("registration-form").onsubmit=async event=>{
 };
 function showLogin() {
   study.user=null;
+  stopReadingTimer();
   toggleRegistration(false);
   visible("login-section",true); visible("admin-section",false);visible("reader-section",false);
   visible("logout",false);el("identity").textContent="未登录";
@@ -449,6 +450,28 @@ el("dataset-preview-prev").onclick=()=>stepDatasetPreview(-1);
 el("dataset-preview-next").onclick=()=>stepDatasetPreview(1);
 el("dataset-preview-grid").addEventListener("wheel",e=>{e.preventDefault();stepDatasetPreview(e.deltaY>0?1:-1);},{passive:false});
 
+let readingTimerInterval=null;
+function stopReadingTimer(){
+  if(readingTimerInterval!==null){
+    clearInterval(readingTimerInterval);
+    readingTimerInterval=null;
+  }
+}
+function updateReadingTimer(){
+  if(!study.task||!study.startTime)return;
+  const seconds=Math.max(0,Math.floor((Date.now()-study.startTime)/1000));
+  const minutes=Math.floor(seconds/60);
+  const hours=Math.floor(minutes/60);
+  const time=hours>0
+    ?[hours,minutes%60,seconds%60].map(n=>String(n).padStart(2,"0")).join(":")
+    :[minutes,seconds%60].map(n=>String(n).padStart(2,"0")).join(":");
+  el("reading-elapsed").textContent=time;
+}
+function startReadingTimer(){
+  stopReadingTimer();
+  updateReadingTimer();
+  readingTimerInterval=setInterval(updateReadingTimer,1000);
+}
 async function refreshReader(){
   const data=await api("/tasks/summary");
   el("reader-summary").textContent="已完成 "+data.completed+"/"+data.total+" · 剩余 "+data.remaining;
@@ -477,13 +500,12 @@ async function startNext(){
   if(study.busy)return;
   try {
     const response=await api("/tasks/next");
-    if(!response.task){study.task=null;discardImages();visible("reading",false);visible("reader-idle",true);
+    if(!response.task){study.task=null;stopReadingTimer();discardImages();visible("reading",false);visible("reader-idle",true);
       el("reader-idle").textContent="当前没有待评阅任务。";await refreshReader();return;}
     discardImages();
     const task=await api("/tasks/"+response.task.id);
     study.task=task;study.z=Math.floor(task.depth/2);study.lo=-160;study.hi=240;
     el("case-number").textContent=task.public_code;
-    el("reading-status").textContent="单次独立诊断 · 阅片中";
     el("diagnosis-form").reset();syncDiagnosisFields();
     visible("reading",true);visible("reader-idle",false);
     const grid=el("phase-grid");grid.replaceChildren();
@@ -522,6 +544,7 @@ async function startNext(){
       grid.append(pane);
     });
     study.startTime=Date.now();
+    startReadingTimer();
     await renderImages();
   }catch(err){message(err.message,true);}
 }
@@ -704,7 +727,7 @@ el("diagnosis-form").onsubmit=async e=>{
     sessionStorage.setItem(key,JSON.stringify(submitted));
     await api("/tasks/"+id+"/submit",{method:"POST",body:submitted});
     sessionStorage.removeItem(key);
-    study.task=null;discardImages();visible("reading",false);
+    study.task=null;stopReadingTimer();discardImages();visible("reading",false);
     study.busy=false;
     await refreshReader();await startNext();
   }catch(err){message("提交未确认，当前任务保留。请检查网络后再次点击提交："+err.message,true);}
