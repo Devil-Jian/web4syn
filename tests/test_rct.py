@@ -250,3 +250,39 @@ def test_registration_works_when_study_published_but_cannot_approve_midround(cli
     assert doctor["enabled"]==0
     assert client.patch(f"/api/rct/admin/readers/{doctor['id']}/status",
         headers=admin_auth,json={"enabled":True}).status_code==409
+
+
+def test_six_character_doctor_password_is_accepted(client):
+    applicant={"username":"SixPassword","display_name":"Six Reader",
+               "password":"abc123"}
+    registered=client.post("/api/rct/auth/register",json=applicant)
+    assert registered.status_code==201,registered.text
+    too_short=client.post("/api/rct/auth/register",json={
+        "username":"ShortPassword","display_name":"Short Reader","password":"abc12"})
+    assert too_short.status_code==422
+
+    administrator=auth(client,"admin","change-this-in-production-12345")
+    doctor=next(r for r in client.get("/api/rct/admin/readers",headers=administrator).json()
+                if r["username"]=="SixPassword")
+    approved=client.patch(f"/api/rct/admin/readers/{doctor['id']}/status",
+                          headers=administrator,json={"enabled":True})
+    assert approved.status_code==200
+    assert client.post("/api/rct/auth/login",json={
+        "username":"SixPassword","password":"abc123"}).status_code==200
+
+    created=client.post("/api/rct/admin/readers",headers=administrator,json={
+        "username":"SixCreated","display_name":"Created Reader",
+        "level":"junior","password":"abc123"})
+    assert created.status_code==200,created.text
+    doctor_id=next(r["id"] for r in client.get("/api/rct/admin/readers",headers=administrator).json()
+                   if r["username"]=="SixCreated")
+    reset=client.post(f"/api/rct/admin/readers/{doctor_id}/password",
+        headers=administrator,json={"password":"xyz789",
+                                  "admin_password":"change-this-in-production-12345"})
+    assert reset.status_code==200,reset.text
+    rejected=client.post(f"/api/rct/admin/readers/{doctor_id}/password",
+        headers=administrator,json={"password":"12345",
+                                  "admin_password":"change-this-in-production-12345"})
+    assert rejected.status_code==422
+    assert client.post("/api/rct/auth/login",json={
+        "username":"SixCreated","password":"xyz789"}).status_code==200
