@@ -23,3 +23,10 @@
 .reader-editor{border-top:1px solid #e0eaf2;margin-top:15px;padding-top:13px}
 .reader-editor h3{margin:0 0 12px;font-size:15px;color:#244b6b}
 .reader-editor .actions{margin-top:4px}
+
+/* Doctor registration: same card, mutually exclusive login and application views. */
+.auth-link{margin-top:15px;width:100%}
+#registration-panel{border-top:1px solid #e2eaf1;margin-top:19px;padding-top:18px}
+#registration-panel h2{font-size:19px;margin:0 0 6px;color:#1a344f}
+#registration-panel .hint{margin:5px 0 15px;line-height:1.6}
+#registration-result{min-height:18px;word-break:break-word}
