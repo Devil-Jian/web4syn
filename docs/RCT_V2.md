@@ -89,14 +89,24 @@ Use this only in a **test installation**. The reset control is disabled by defau
 
 A research study with status `locked` cannot be reset, even with the test flag enabled. Do not delete `rct.sqlite` to reset a real clinical study. Note that the SQLite backup includes potentially sensitive study metadata and results; restrict folder permissions and protect backup retention.
 
+## Simplified one-click study launch
+
+The administrator no longer needs to configure target sample size, set a randomization seed, freeze the cohort separately, or press a second Publish button. The main admin panel now shows **一键分配并发布任务** with readiness checks.
+
+1. Automatic HDF5 indexing populates the candidate list from `/dataset/RCTs/data_h5_v2`; exclude only unsuitable files.
+2. Ensure 6–9 readers are enabled. The panel reports the included-case and enabled-doctor totals and lists any blocking issues.
+3. Click **一键分配并发布任务**, then confirm the exact counts once. The server performs cohort freeze, 1:1:1 allocation, and publication **in a single SQLite transaction**. It automatically sets the research target to the included cohort size.
+4. Existing **frozen** studies can also use this button; a prior randomized-but-unpublished study may publish its existing tasks without rerandomizing.
+5. The same published study cannot be published again. To restart a test round, use the separately gated test-reset function; locked studies remain immutable.
+
+Existing legacy APIs remain for backwards compatibility, but the admin UI presents only the guided launch action. Neither the web indexer nor the launcher performs medical image QC.
+
 ## Admin operating procedure
 
-1. Log in as admin and verify automatic directory scan completed; choose **Rescan** if needed.
-2. Review the candidate list and optionally exclude cases. The Web application does no medical QC.
-3. **Freeze final cohort**. The number of included files becomes the study target.
-4. Create/verify 6–9 readers, then randomize the frozen patient cohort once.
-5. Publish, let doctors perform one independent read per patient.
-6. After all tasks have been submitted, lock and export CSV.
+1. Log in and confirm directory scanning has finished.
+2. Exclude unwanted candidate cases in the patient list and create/enable 6–9 readers.
+3. Click **一键分配并发布任务**, check the displayed patient/doctor counts, and confirm.
+4. Let readers complete their tasks. Lock and export results after all reports are submitted.
 
 ## Diagnostic form validation
 
