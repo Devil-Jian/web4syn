@@ -192,12 +192,12 @@ class Credentials(BaseModel):
 class ReaderRegistration(BaseModel):
     username: str = Field(min_length=3, max_length=80)
     display_name: str = Field(min_length=1, max_length=80)
-    password: str = Field(min_length=12, max_length=256)
+    password: str = Field(min_length=6, max_length=256)
 
 
 class ReaderCreate(BaseModel):
     username: str
-    password: str = Field(min_length=12)
+    password: str = Field(min_length=6, max_length=256)
     display_name: str = Field(min_length=1, max_length=80)
     level: Literal["junior", "intermediate", "senior"]
 
@@ -212,7 +212,7 @@ class ReaderStatusUpdate(BaseModel):
 
 
 class ReaderPasswordReset(BaseModel):
-    password: str = Field(min_length=12, max_length=256)
+    password: str = Field(min_length=6, max_length=256)
     admin_password: str = Field(min_length=1)
 
 
