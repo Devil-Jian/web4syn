@@ -165,6 +165,10 @@ def initialize():
         INSERT OR IGNORE INTO rct_studies(id,name,target,status,created_at)
         VALUES(1,'Three-Arm RW-RCT',1600,'draft',strftime('%s','now'));
         """)
+        # Preserve existing accounts and migrate the registration status in place.
+        columns={row["name"] for row in c.execute("PRAGMA table_info(rct_users)")}
+        if "registration_status" not in columns:
+            c.execute("ALTER TABLE rct_users ADD COLUMN registration_status TEXT NOT NULL DEFAULT 'approved'")
         exists = c.execute("SELECT 1 FROM rct_users WHERE role='admin' LIMIT 1").fetchone()
         if not exists:
             bootstrap = os.getenv("WEB4SYN_RCT_ADMIN_PASSWORD", "")
@@ -183,6 +187,13 @@ initialize()
 class Credentials(BaseModel):
     username: str
     password: str
+
+
+class ReaderRegistration(BaseModel):
+    username: str = Field(min_length=3, max_length=80)
+    display_name: str = Field(min_length=1, max_length=80)
+    level: Literal["junior", "intermediate", "senior"]
+    password: str = Field(min_length=12, max_length=256)
 
 
 class ReaderCreate(BaseModel):
@@ -283,6 +294,29 @@ def study(c):
 def require_draft(c):
     if study(c)["status"] != "draft":
         raise HTTPException(409, "Study is already published")
+
+
+@router.post("/auth/register", status_code=201)
+def register_reader(payload: ReaderRegistration):
+    """Self-registration only creates an account pending administrator approval."""
+    username=payload.username.strip()
+    display_name=payload.display_name.strip()
+    if not PATTERN.fullmatch(username) or len(username)<3 or not display_name:
+        raise HTTPException(422, "Invalid username or display name")
+    with database(immediate=True) as c:
+        pending=c.execute("""SELECT COUNT(*) FROM rct_users
+          WHERE role='reader' AND registration_status='pending'""").fetchone()[0]
+        if pending>=100:
+            raise HTTPException(429,"Registration queue is full; contact administrator")
+        try:
+            cursor=c.execute("""INSERT INTO rct_users
+              (username,password_hash,role,display_name,level,enabled,registration_status)
+              VALUES(?,?,'reader',?,?,0,'pending')""",
+              (username,password_hash(payload.password),display_name,payload.level))
+        except sqlite3.IntegrityError:
+            raise HTTPException(409,"Username already exists")
+        audit(c,None,"reader_registration_requested",{"reader_id":cursor.lastrowid})
+    return {"ok":True,"status":"pending","message":"注册申请已提交，请等待管理员审核启用"}
 
 
 @router.post("/auth/login")
@@ -536,7 +570,7 @@ def create_reader(payload: ReaderCreate, user=Depends(admin)):
 @router.get("/admin/readers")
 def list_readers(user=Depends(admin)):
     with database() as c:
-        rows = c.execute("""SELECT u.id,u.username,u.display_name,u.level,u.enabled,
+        rows = c.execute("""SELECT u.id,u.username,u.display_name,u.level,u.enabled,u.registration_status,
                 COUNT(t.id) AS assigned,
                 SUM(CASE WHEN t.status='submitted' THEN 1 ELSE 0 END) AS completed
                 FROM rct_users u LEFT JOIN rct_tasks t ON t.reader_id=u.id
@@ -547,7 +581,7 @@ def list_readers(user=Depends(admin)):
 
 def require_managed_reader(c, reader_id):
     record = c.execute(
-        "SELECT id,username,display_name,level,enabled FROM rct_users "
+        "SELECT id,username,display_name,level,enabled,registration_status FROM rct_users "
         "WHERE id=? AND role='reader'", (reader_id,)).fetchone()
     if record is None:
         raise HTTPException(404, "Reader not found")
@@ -588,11 +622,14 @@ def set_reader_status(reader_id: int, payload: ReaderStatusUpdate, user=Depends(
                 raise HTTPException(409, "Reader has assigned tasks; reset the test round before disabling")
             if study(c)["status"] != "draft":
                 raise HTTPException(409, "Account status cannot change after publication")
-            c.execute("UPDATE rct_users SET enabled=? WHERE id=?", (enabled,reader_id))
+            c.execute("""UPDATE rct_users SET enabled=?,
+                registration_status=CASE WHEN ?=1 THEN 'approved' ELSE registration_status END
+                WHERE id=?""",(enabled,enabled,reader_id))
             if not enabled:
                 c.execute("DELETE FROM rct_sessions WHERE user_id=?", (reader_id,))
             audit(c, user["id"], "reader_status_changed",
-                  {"reader_id": reader_id, "enabled": bool(enabled)})
+                  {"reader_id": reader_id, "enabled": bool(enabled),
+                   "registration_approved":bool(enabled) and old["registration_status"]=="pending"})
     return {"ok": True, "enabled": bool(enabled)}
 
 
