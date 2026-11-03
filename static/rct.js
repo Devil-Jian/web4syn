@@ -475,7 +475,10 @@ function startReadingTimer(){
 async function refreshReader(){
   const data=await api("/tasks/summary");
   el("reader-summary").textContent="已完成 "+data.completed+"/"+data.total+" · 剩余 "+data.remaining;
-  if(data.remaining===0) {visible("reader-idle",true);el("reader-idle").textContent="已完成全部评阅任务。";}
+  const empty=data.remaining===0;
+  visible("reader-idle",empty||!study.task);
+  visible("continue-button",!empty);
+  el("reader-idle-message").textContent=empty?"已完成全部评阅任务。":"";
 }
 // The viewer swaps complete, decoded phase groups in a single animation frame.
 // Cache requests (and decoded images) so a rapid wheel gesture does not refetch.
@@ -501,7 +504,7 @@ async function startNext(){
   try {
     const response=await api("/tasks/next");
     if(!response.task){study.task=null;stopReadingTimer();discardImages();visible("reading",false);visible("reader-idle",true);
-      el("reader-idle").textContent="当前没有待评阅任务。";await refreshReader();return;}
+      el("reader-idle-message").textContent="当前没有待评阅任务。";await refreshReader();return;}
     discardImages();
     const task=await api("/tasks/"+response.task.id);
     study.task=task;study.z=Math.floor(task.depth/2);study.lo=-160;study.hi=240;
