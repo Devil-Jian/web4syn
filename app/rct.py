@@ -128,6 +128,7 @@ def initialize():
             task_id INTEGER NOT NULL UNIQUE REFERENCES rct_tasks(id),
             submission_key TEXT NOT NULL UNIQUE,
             lesion_visible TEXT NOT NULL,
+            lesion_nature TEXT,
             diagnosis TEXT,
             malignancy_risk INTEGER,
             client_active_seconds REAL,
@@ -165,6 +166,10 @@ def initialize():
         INSERT OR IGNORE INTO rct_studies(id,name,target,status,created_at)
         VALUES(1,'Three-Arm RW-RCT',1600,'draft',strftime('%s','now'));
         """)
+        # Non-destructive migration: old submitted reports retain NULL lesion_nature.
+        result_columns={row["name"] for row in c.execute("PRAGMA table_info(rct_results)")}
+        if "lesion_nature" not in result_columns:
+            c.execute("ALTER TABLE rct_results ADD COLUMN lesion_nature TEXT")
         # Preserve existing accounts and migrate the registration status in place.
         columns={row["name"] for row in c.execute("PRAGMA table_info(rct_users)")}
         if "registration_status" not in columns:
@@ -252,6 +257,7 @@ def reset_enabled():
 class DiagnosisSubmission(BaseModel):
     submission_key: str = Field(min_length=12, max_length=120)
     lesion_visible: Literal["yes", "no", "unsure"]
+    lesion_nature: Literal["benign", "malignant", "unsure"] | None = None
     diagnosis: str | None = None
     malignancy_risk: int | None = Field(default=None, ge=1, le=5)
     client_active_seconds: float | None = Field(default=None, ge=0, le=86400)
@@ -375,7 +381,7 @@ def end_round(payload: EndRoundRequest, user=Depends(admin)):
                   t.sort_order,t.status,t.assigned_at,t.opened_at,t.submitted_at,
                   p.patient_code,p.pack_filename,p.center,p.depth,
                   u.username AS reader,u.display_name AS reader_name,u.level AS reader_level,
-                  r.submission_key,r.lesion_visible,r.diagnosis,r.malignancy_risk,
+                  r.submission_key,r.lesion_visible,r.lesion_nature,r.diagnosis,r.malignancy_risk,
                   r.client_active_seconds,r.server_elapsed_seconds,
                   r.submitted_at AS result_submitted_at
                   FROM rct_tasks t JOIN rct_patients p ON p.id=t.patient_id
@@ -435,7 +441,7 @@ def export_round_archive(archive_id: int, user=Depends(admin)):
                           WHERE archive_id=? ORDER BY task_id""",(archive_id,)).fetchall()
         audit(c,user["id"],"round_archive_export",{"archive_id":archive_id,"rows":len(rows)})
     columns=["patient_code","center","public_code","arm","reader","reader_level",
-             "status","lesion_visible","diagnosis","malignancy_risk",
+             "status","lesion_visible","lesion_nature","diagnosis","malignancy_risk",
              "client_active_seconds","server_elapsed_seconds",
              "opened_at","result_submitted_at"]
     output=io.StringIO()
@@ -818,7 +824,7 @@ def export_csv(user=Depends(admin)):
         if study(c)["status"] != "locked":
             raise HTTPException(403, "Export requires a locked study")
         rows = c.execute("""SELECT p.patient_code,p.center,t.public_code,t.arm,
-                u.username reader,u.level reader_level,r.lesion_visible,r.diagnosis,
+                u.username reader,u.level reader_level,r.lesion_visible,r.lesion_nature,r.diagnosis,
                 r.malignancy_risk,r.client_active_seconds,r.server_elapsed_seconds,
                 t.opened_at,r.submitted_at
                 FROM rct_tasks t JOIN rct_patients p ON p.id=t.patient_id
@@ -827,7 +833,7 @@ def export_csv(user=Depends(admin)):
                 ORDER BY t.id""").fetchall()
         audit(c, user["id"], "export", {"rows": len(rows)})
     columns = ["patient_code", "center", "public_code", "arm", "reader", "reader_level",
-               "lesion_visible", "diagnosis", "malignancy_risk", "client_active_seconds",
+               "lesion_visible", "lesion_nature", "diagnosis", "malignancy_risk", "client_active_seconds",
                "server_elapsed_seconds", "opened_at", "submitted_at"]
     file = io.StringIO()
     writer = csv.writer(file)
@@ -912,13 +918,13 @@ def image_slice(task_id: int, phase: str, z: int, lo: float = -160, hi: float = 
 def submit(task_id: int, payload: DiagnosisSubmission, user=Depends(reader)):
     if payload.diagnosis not in LABELS | {None}:
         raise HTTPException(422, "Invalid diagnosis category")
-    if payload.lesion_visible == "yes" and (
-        payload.diagnosis is None or payload.malignancy_risk is None):
-        raise HTTPException(422, "Diagnosis and risk required for visible lesion")
-    if payload.lesion_visible == "no" and payload.diagnosis is not None:
-        raise HTTPException(422, "Diagnosis forbidden for absent lesion")
-    if payload.lesion_visible == "unsure" and payload.malignancy_risk is not None:
-        raise HTTPException(422, "Risk forbidden for uncertain lesion")
+    if payload.lesion_visible == "yes":
+        if (payload.lesion_nature is None or payload.diagnosis is None
+                or payload.malignancy_risk is None):
+            raise HTTPException(422, "Nature, diagnosis and risk required for visible lesion")
+    elif any(value is not None for value in (
+            payload.lesion_nature,payload.diagnosis,payload.malignancy_risk)):
+        raise HTTPException(422, "Further lesion ratings must be empty if presence is not yes")
     with database(immediate=True) as c:
         task = owned_task(c, task_id, user)
         previous = c.execute("SELECT submission_key FROM rct_results WHERE task_id=?",
@@ -932,10 +938,12 @@ def submit(task_id: int, payload: DiagnosisSubmission, user=Depends(reader)):
         now = int(time.time())
         try:
             c.execute("""INSERT INTO rct_results(task_id,submission_key,lesion_visible,
-                        diagnosis,malignancy_risk,client_active_seconds,server_elapsed_seconds,submitted_at)
-                        VALUES(?,?,?,?,?,?,?,?)""",
-                      (task_id, payload.submission_key, payload.lesion_visible, payload.diagnosis,
-                       payload.malignancy_risk, payload.client_active_seconds,
+                        lesion_nature,diagnosis,malignancy_risk,client_active_seconds,
+                        server_elapsed_seconds,submitted_at)
+                        VALUES(?,?,?,?,?,?,?,?,?)""",
+                      (task_id, payload.submission_key, payload.lesion_visible,
+                       payload.lesion_nature, payload.diagnosis,payload.malignancy_risk,
+                       payload.client_active_seconds,
                        max(0, now - (task["opened_at"] or now)), now))
         except sqlite3.IntegrityError:
             raise HTTPException(409, "Duplicate submission key")
