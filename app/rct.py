@@ -278,6 +278,12 @@ def admin_study(user=Depends(admin)):
 def configure_study(payload: StudyConfig, user=Depends(admin)):
     with database(immediate=True) as c:
         require_draft(c)
+        try:
+            frozen = c.execute("SELECT frozen_at FROM rct_scan_state WHERE id=1").fetchone()
+        except sqlite3.OperationalError:
+            frozen = None
+        if frozen and frozen["frozen_at"] is not None:
+            raise HTTPException(409, "Study cohort already frozen")
         if c.execute("SELECT 1 FROM rct_tasks LIMIT 1").fetchone():
             raise HTTPException(409, "Tasks already randomized")
         c.execute("UPDATE rct_studies SET target=? WHERE id=1", (payload.target,))
