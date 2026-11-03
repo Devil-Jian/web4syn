@@ -187,3 +187,68 @@ def test_reader_account_management_before_and_after_randomization(client):
                         headers=administrator,json={
                             "display_name":"Corrected alias","level":with_tasks["level"]}).status_code==200
     assert client.get("/api/rct/admin/study",headers=administrator).json()["tasks"]==6
+
+
+def test_doctor_self_registration_requires_administrator_approval(client):
+    applicant={
+        "username":"NewDoctor123",
+        "display_name":"Doctor New",
+        "level":"intermediate",
+        "password":"new-doctor-password-1234",
+    }
+    created=client.post("/api/rct/auth/register",json=applicant)
+    assert created.status_code==201,created.text
+    assert created.json()["status"]=="pending"
+    assert client.post("/api/rct/auth/login",json={
+        "username":applicant["username"],"password":applicant["password"]
+    }).status_code==401
+    duplicate=client.post("/api/rct/auth/register",json=applicant)
+    assert duplicate.status_code==409
+    for invalid in [
+        {**applicant,"username":"bad name"},
+        {**applicant,"username":"ab"},
+        {**applicant,"password":"short"},
+        {**applicant,"level":"self-proclaimed-admin"},
+    ]:
+        assert client.post("/api/rct/auth/register",json=invalid).status_code==422
+    admin_auth=auth(client,"admin","change-this-in-production-12345")
+    doctors=client.get("/api/rct/admin/readers",headers=admin_auth).json()
+    doctor=next(x for x in doctors if x["username"]==applicant["username"])
+    assert doctor["registration_status"]=="pending" and doctor["enabled"]==0
+    assert doctor["assigned"]==0
+    # A non-admin cannot review registration requests.
+    assert client.patch(f"/api/rct/admin/readers/{doctor['id']}/status",
+         json={"enabled":True}).status_code==401
+    approved=client.patch(f"/api/rct/admin/readers/{doctor['id']}/status",
+        headers=admin_auth,json={"enabled":True})
+    assert approved.status_code==200,approved.text
+    doctors=client.get("/api/rct/admin/readers",headers=admin_auth).json()
+    doctor=next(x for x in doctors if x["username"]==applicant["username"])
+    assert doctor["registration_status"]=="approved" and doctor["enabled"]==1
+    reader_auth=auth(client,applicant["username"],applicant["password"])
+    assert client.get("/api/rct/me",headers=reader_auth).status_code==200
+    assert client.get("/api/rct/admin/readers",headers=reader_auth).status_code==403
+    assert client.patch(f"/api/rct/admin/readers/{doctor['id']}/status",
+        headers=admin_auth,json={"enabled":False}).status_code==200
+    assert client.get("/api/rct/me",headers=reader_auth).status_code==401
+    assert client.post("/api/rct/auth/login",json={
+        "username":applicant["username"],"password":applicant["password"]
+    }).status_code==401
+
+
+def test_registration_works_when_study_published_but_cannot_approve_midround(client):
+    admin_auth=auth(client,"admin","change-this-in-production-12345")
+    with rct.database() as db:
+        db.execute("UPDATE rct_studies SET status='published' WHERE id=1")
+    application=client.post("/api/rct/auth/register",json={
+        "username":"DoctorNextRound",
+        "display_name":"Later Reader",
+        "level":"junior",
+        "password":"valid-password-12345",
+    })
+    assert application.status_code==201,application.text
+    candidates=client.get("/api/rct/admin/readers",headers=admin_auth).json()
+    doctor=next(x for x in candidates if x["username"]=="DoctorNextRound")
+    assert doctor["enabled"]==0
+    assert client.patch(f"/api/rct/admin/readers/{doctor['id']}/status",
+        headers=admin_auth,json={"enabled":True}).status_code==409
