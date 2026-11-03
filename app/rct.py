@@ -4,6 +4,7 @@ No legacy public reader endpoints are reused. All images are served only after
 checking the authenticated reader's immutable patient-level assignment.
 """
 import csv
+import threading
 import hashlib
 import hmac
 import io
@@ -34,6 +35,8 @@ LABELS = {"HCC", "ICC", "MET", "FNH", "HEM", "CYST", "OTHER"}
 PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 SESSION_SECONDS = 12 * 3600
 ITERATIONS = 260000
+RESET_LOCK = threading.Lock()
+RESET_CONFIRM = "RESET TEST STUDY"
 
 
 @contextmanager
@@ -186,6 +189,15 @@ class RandomizationRequest(BaseModel):
     seed: str | None = Field(default=None, max_length=256)
 
 
+class StudyResetRequest(BaseModel):
+    confirm: Literal["RESET TEST STUDY"]
+    password: str = Field(min_length=1)
+
+
+def reset_enabled():
+    return os.getenv("WEB4SYN_RCT_ALLOW_TEST_RESET", "0") == "1"
+
+
 class DiagnosisSubmission(BaseModel):
     submission_key: str = Field(min_length=12, max_length=120)
     lesion_visible: Literal["yes", "no", "unsure"]
@@ -272,6 +284,82 @@ def admin_study(user=Depends(admin)):
             "tasks": c.execute("SELECT COUNT(*) FROM rct_tasks").fetchone()[0],
         }
     return {**s, **counts}
+
+
+@router.post("/admin/reset-test-study")
+def reset_test_study(payload: StudyResetRequest, user=Depends(admin)):
+    """Destructive test-only reset with a private SQLite backup.
+
+    Does not delete the file catalog, inclusion decisions, users or audit history.
+    Formally locked studies cannot be reset, even in test mode.
+    """
+    if not reset_enabled():
+        raise HTTPException(403, "Test reset disabled by server configuration")
+    if not RESET_LOCK.acquire(blocking=False):
+        raise HTTPException(409, "Another reset is already running")
+    try:
+        # Verify the administrator's password, not merely possession of a session.
+        with database() as c:
+            record = c.execute(
+                "SELECT password_hash FROM rct_users WHERE id=? AND role='admin'",
+                (user["id"],)).fetchone()
+            if not record or not check_password(payload.password, record["password_hash"]):
+                raise HTTPException(403, "Administrator password incorrect")
+            if study(c)["status"] == "locked":
+                raise HTTPException(409, "Locked studies must not be reset")
+            prior = c.execute(
+                "SELECT COUNT(*) AS n, COALESCE(MAX(id),0) AS last_id FROM rct_results"
+            ).fetchone()
+            expected = (prior["n"], prior["last_id"])
+
+        # Preserve a complete rollback copy before any deletion. Backup is private:
+        # It may contain study assignments and medical labels.
+        archive_dir = DATABASE.parent / "rct_backups"
+        archive_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        archive_path = archive_dir / ("rct_before_test_reset_" +
+            str(int(time.time())) + "_" + secrets.token_hex(6) + ".sqlite")
+        src = sqlite3.connect(DATABASE, timeout=30)
+        dst = sqlite3.connect(archive_path)
+        try:
+            src.backup(dst)
+        except Exception:
+            dst.close()
+            archive_path.unlink(missing_ok=True)
+            raise
+        finally:
+            src.close()
+            dst.close()
+        archive_path.chmod(0o600)
+
+        with database(immediate=True) as c:
+            if study(c)["status"] == "locked":
+                raise HTTPException(409, "Study became locked during backup")
+            current = c.execute(
+                "SELECT COUNT(*) AS n, COALESCE(MAX(id),0) AS last_id FROM rct_results"
+            ).fetchone()
+            if (current["n"], current["last_id"]) != expected:
+                raise HTTPException(409, "Results changed during backup; retry reset")
+            tasks = c.execute("SELECT COUNT(*) FROM rct_tasks").fetchone()[0]
+            submissions = current["n"]
+            c.execute("DELETE FROM rct_results")
+            c.execute("DELETE FROM rct_tasks")
+            c.execute("DELETE FROM rct_patients")
+            # Keep file catalog and per-file include/exclude decisions so that
+            # an administrator can reselect cases from the existing index.
+            c.execute("""UPDATE rct_scan_state SET
+                frozen_at=NULL,frozen_count=NULL,frozen_digest=NULL WHERE id=1""")
+            c.execute("""UPDATE rct_studies SET status='draft',target=1600,
+                randomization_digest=NULL,locked_at=NULL WHERE id=1""")
+            c.execute("""DELETE FROM rct_sessions WHERE user_id IN
+                (SELECT id FROM rct_users WHERE role='reader')""")
+            audit(c,user["id"],"test_study_reset",{
+                "removed_tasks":tasks,"removed_results":submissions,
+                "backup_name":archive_path.name
+            })
+        return {"ok":True,"removed_tasks":tasks,"removed_results":submissions,
+                "backup_name":archive_path.name}
+    finally:
+        RESET_LOCK.release()
 
 
 @router.put("/admin/study")
