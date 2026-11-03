@@ -171,6 +171,20 @@ class ReaderCreate(BaseModel):
     level: Literal["junior", "intermediate", "senior"]
 
 
+class ReaderUpdate(BaseModel):
+    display_name: str = Field(min_length=1, max_length=80)
+    level: Literal["junior", "intermediate", "senior"]
+
+
+class ReaderStatusUpdate(BaseModel):
+    enabled: bool
+
+
+class ReaderPasswordReset(BaseModel):
+    password: str = Field(min_length=12, max_length=256)
+    admin_password: str = Field(min_length=1)
+
+
 class PatientRow(BaseModel):
     patient_code: str
     pack_filename: str
@@ -401,12 +415,82 @@ def create_reader(payload: ReaderCreate, user=Depends(admin)):
 @router.get("/admin/readers")
 def list_readers(user=Depends(admin)):
     with database() as c:
-        rows = c.execute("""SELECT u.id,u.username,u.display_name,u.level,
-                COUNT(t.id) assigned, SUM(CASE WHEN t.status='submitted' THEN 1 ELSE 0 END) completed
+        rows = c.execute("""SELECT u.id,u.username,u.display_name,u.level,u.enabled,
+                COUNT(t.id) AS assigned,
+                SUM(CASE WHEN t.status='submitted' THEN 1 ELSE 0 END) AS completed
                 FROM rct_users u LEFT JOIN rct_tasks t ON t.reader_id=u.id
-                WHERE u.role='reader' AND u.enabled=1
-                GROUP BY u.id ORDER BY u.level,u.id""").fetchall()
-    return [dict(x) for x in rows]
+                WHERE u.role='reader'
+                GROUP BY u.id ORDER BY u.id""").fetchall()
+    return [{**dict(r), "completed": r["completed"] or 0} for r in rows]
+
+
+def require_managed_reader(c, reader_id):
+    record = c.execute(
+        "SELECT id,username,display_name,level,enabled FROM rct_users "
+        "WHERE id=? AND role='reader'", (reader_id,)).fetchone()
+    if record is None:
+        raise HTTPException(404, "Reader not found")
+    return record
+
+
+def reader_has_assignments(c, reader_id):
+    return c.execute("SELECT 1 FROM rct_tasks WHERE reader_id=? LIMIT 1",
+                     (reader_id,)).fetchone() is not None
+
+
+@router.patch("/admin/readers/{reader_id}")
+def update_reader(reader_id: int, payload: ReaderUpdate, user=Depends(admin)):
+    name = payload.display_name.strip()
+    if not name:
+        raise HTTPException(422, "Display name required")
+    with database(immediate=True) as c:
+        old = require_managed_reader(c, reader_id)
+        # Once randomized, reader experience grades are part of the study design.
+        if payload.level != old["level"] and (reader_has_assignments(c, reader_id)
+                                             or study(c)["status"] != "draft"):
+            raise HTTPException(409, "Reader grade cannot change after randomization")
+        c.execute("UPDATE rct_users SET display_name=?,level=? WHERE id=?",
+                  (name, payload.level, reader_id))
+        audit(c, user["id"], "reader_updated", {"reader_id": reader_id,
+              "previous_level": old["level"], "level": payload.level})
+    return {"ok": True}
+
+
+@router.patch("/admin/readers/{reader_id}/status")
+def set_reader_status(reader_id: int, payload: ReaderStatusUpdate, user=Depends(admin)):
+    with database(immediate=True) as c:
+        old = require_managed_reader(c, reader_id)
+        enabled = int(payload.enabled)
+        if enabled != old["enabled"]:
+            # Never strand assigned patients with a disabled doctor.
+            if reader_has_assignments(c, reader_id):
+                raise HTTPException(409, "Reader has assigned tasks; reset the test round before disabling")
+            if study(c)["status"] != "draft":
+                raise HTTPException(409, "Account status cannot change after publication")
+            c.execute("UPDATE rct_users SET enabled=? WHERE id=?", (enabled,reader_id))
+            if not enabled:
+                c.execute("DELETE FROM rct_sessions WHERE user_id=?", (reader_id,))
+            audit(c, user["id"], "reader_status_changed",
+                  {"reader_id": reader_id, "enabled": bool(enabled)})
+    return {"ok": True, "enabled": bool(enabled)}
+
+
+@router.post("/admin/readers/{reader_id}/password")
+def reset_reader_password(reader_id: int, payload: ReaderPasswordReset, user=Depends(admin)):
+    with database(immediate=True) as c:
+        require_managed_reader(c,reader_id)
+        administrator = c.execute(
+            "SELECT password_hash FROM rct_users WHERE id=? AND role='admin'",
+            (user["id"],)).fetchone()
+        if administrator is None or not check_password(payload.admin_password,
+                                                         administrator["password_hash"]):
+            raise HTTPException(403, "Administrator password incorrect")
+        c.execute("UPDATE rct_users SET password_hash=? WHERE id=?",
+                  (password_hash(payload.password), reader_id))
+        # Invalidate prior login tokens without affecting assigned tasks/results.
+        c.execute("DELETE FROM rct_sessions WHERE user_id=?", (reader_id,))
+        audit(c, user["id"], "reader_password_reset", {"reader_id": reader_id})
+    return {"ok": True, "sessions_revoked": True}
 
 
 @router.get("/admin/packs")
