@@ -45,7 +45,7 @@ When migrating from an existing container on port 8000, stop the old container a
 
 ## Doctor self-registration (admin approved)
 
-The login page now includes **医生注册账号**. A physician enters a username (3–80 ASCII letters/digits/underscore/dash), display name and password (12+ characters), and confirms the password. Registration does **not** create an active reader session or assign patients.
+The login page now includes **医生注册账号**. A physician enters a username (3–80 ASCII letters/digits/underscore/dash), display name and password (6+ characters), and confirms the password. Registration does **not** create an active reader session or assign patients.
 
 - New registration is stored as a disabled `reader` with `registration_status=pending` and no preassigned seniority; pending users cannot log in. Admins can optionally specify grade later.
 - Admins can review pending registrations in **医生账户管理**: the status shows **待审核** and the action **审核通过**.
@@ -62,7 +62,7 @@ Admin console section **02 · 医生账户管理** supports:
 - List **all** reader accounts, including disabled accounts, with status and assigned/completed task counts.
 - Edit display name at any time; doctor seniority may be changed only before randomization because it affects study design.
 - Enable or disable accounts before any assignment; accounts with tasks cannot be disabled to prevent stranded cases. Disabled accounts cannot log in.
-- Reset a doctor password with a new password (minimum 12 characters) and the **current administrator password**. This invalidates all existing sessions of that reader without altering tasks or results.
+- Reset a doctor password with a new password (minimum 6 characters) and the **current administrator password**. This invalidates all existing sessions of that reader without altering tasks or results.
 - Account actions are recorded in the study audit log. No destructive delete operation is exposed.
 
 For replacing a reader with assigned tasks, do not disable the account or silently reassign cases. In a test study use the authorized test-reset workflow; for a clinical study an approved protocol-defined reassignment procedure is required.
