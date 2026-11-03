@@ -297,25 +297,21 @@ def require_draft(c):
 
 @router.post("/auth/register", status_code=201)
 def register_reader(payload: ReaderRegistration):
-    """Self-registration only creates an account pending administrator approval."""
+    """Self-registration creates an active reader account; task authorization remains separate."""
     username=payload.username.strip()
     display_name=payload.display_name.strip()
     if not PATTERN.fullmatch(username) or len(username)<3 or not display_name:
         raise HTTPException(422, "Invalid username or display name")
     with database(immediate=True) as c:
-        pending=c.execute("""SELECT COUNT(*) FROM rct_users
-          WHERE role='reader' AND registration_status='pending'""").fetchone()[0]
-        if pending>=100:
-            raise HTTPException(429,"Registration queue is full; contact administrator")
         try:
             cursor=c.execute("""INSERT INTO rct_users
               (username,password_hash,role,display_name,level,enabled,registration_status)
-              VALUES(?,?,'reader',?,?,0,'pending')""",
+              VALUES(?,?,'reader',?,?,1,'approved')""",
               (username,password_hash(payload.password),display_name,None))
         except sqlite3.IntegrityError:
             raise HTTPException(409,"Username already exists")
-        audit(c,None,"reader_registration_requested",{"reader_id":cursor.lastrowid})
-    return {"ok":True,"status":"pending","message":"注册申请已提交，请等待管理员审核启用"}
+        audit(c,None,"reader_self_registered",{"reader_id":cursor.lastrowid})
+    return {"ok":True,"status":"approved","message":"注册成功，请直接登录"}
 
 
 @router.post("/auth/login")
