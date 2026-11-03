@@ -104,7 +104,7 @@ def test_gated_admin_reset_preserves_index_and_backups(setup, monkeypatch):
     assert client.get(f"/api/rct/tasks/{a['id']}",headers=reader_auth).status_code==200
     submitted=client.post(f"/api/rct/tasks/{a['id']}/submit",headers=reader_auth,json={
         "submission_key":"reset-submission-123456","lesion_visible":"yes",
-        "diagnosis":"HCC","malignancy_risk":4})
+        "lesion_nature":"malignant","diagnosis":"HCC","malignancy_risk":4})
     assert submitted.status_code==200,submitted.text
     payload={"confirm":"RESET TEST STUDY","password":"test-admin-password-1234"}
     assert client.post("/api/rct/admin/reset-test-study",headers=admin_auth,json=payload).status_code==403
