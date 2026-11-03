@@ -43,17 +43,13 @@ Bootstrap login: user admin, password is WEB4SYN_RCT_ADMIN_PASSWORD, **minimum 1
 
 When migrating from an existing container on port 8000, stop the old container and back up /var/lib/web4syn first. V2 defaults disable the anonymous V1 demo task API; never set WEB4SYN_ENABLE_LEGACY_DEMO=1 on an externally accessible service.
 
-## Doctor self-registration (admin approved)
+## Doctor self-registration (automatic activation)
 
-The login page now includes **医生注册账号**. A physician enters a username (3–80 ASCII letters/digits/underscore/dash), display name and password (6+ characters), and confirms the password. Registration does **not** create an active reader session or assign patients.
+The login screen has a compact **医生注册账号** entry. A physician submits a username, name/alias, and password (minimum 6 characters, entered twice). Seniority is not requested; it remains unset until an administrator optionally edits the account.
 
-- New registration is stored as a disabled `reader` with `registration_status=pending` and no preassigned seniority; pending users cannot log in. Admins can optionally specify grade later.
-- Admins can review pending registrations in **医生账户管理**: the status shows **待审核** and the action **审核通过**.
-- Approval enables the account and changes its registration status to `approved`. It is only allowed while the study is a draft with no assigned tasks; new registrations submitted during an active round wait for the next round.
-- The physician then logs in with the same password. Actual reading starts only if published tasks have been assigned.
-- Duplicate usernames and malformed applications are rejected. The queue is capped at 100 pending registrations to limit unreviewed accounts. Existing accounts are preserved by a non-destructive SQLite migration.
+New registrations are automatically stored as **enabled** reader accounts with `registration_status=approved`, without manual approval. The physician can immediately sign in. Signing in does not grant access to cases: task endpoints enforce ownership of assigned patients and publication state. New registrations during a published study receive no existing assignments. Administrator controls can still deactivate accounts without assigned tasks.
 
-Registration is intended for a restricted, trusted clinical reader-study deployment. Place the site behind HTTPS and appropriate network access controls; do not expose the study registration endpoint openly without an additional invitation/rate-limiting layer.
+Duplicate usernames and malformed submissions remain rejected. Auto-registration should be enabled only on an HTTPS-protected, access-controlled study network; public registration can create untrusted active accounts or interfere with the 6–9-active-readers preflight count. Consider invitations and server-side rate limiting before public deployment.
 
 ## Doctor account management
 
