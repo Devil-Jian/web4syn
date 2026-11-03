@@ -370,15 +370,30 @@ async function refreshReader(){
   el("reader-summary").textContent="已完成 "+data.completed+"/"+data.total+" · 剩余 "+data.remaining;
   if(data.remaining===0) {visible("reader-idle",true);el("reader-idle").textContent="已完成全部评阅任务。";}
 }
+// The viewer swaps complete, decoded phase groups in a single animation frame.
+// Cache requests (and decoded images) so a rapid wheel gesture does not refetch.
+const viewer = {
+  cache: new Map(), pending: new Map(), shown: null,
+  frame: null, prefetchTimer: null, wheel: 0, wheelFrame: null,
+  wheelAt: 0, sliceEpoch: 0
+};
 function discardImages() {
-  study.generation++;for(const url of study.images.values())URL.revokeObjectURL(url);
+  study.generation++;
+  viewer.sliceEpoch++;
+  if(viewer.frame!==null)cancelAnimationFrame(viewer.frame);
+  if(viewer.wheelFrame!==null)cancelAnimationFrame(viewer.wheelFrame);
+  clearTimeout(viewer.prefetchTimer);
+  viewer.frame=null;viewer.wheelFrame=null;viewer.wheel=0;viewer.shown=null;
+  viewer.pending.clear();
+  for(const entry of viewer.cache.values())URL.revokeObjectURL(entry.url);
+  viewer.cache.clear();
   study.images.clear();study.expanded=null;study.transforms.clear();
 }
 async function startNext(){
   if(study.busy)return;
   try {
     const response=await api("/tasks/next");
-    if(!response.task){study.task=null;visible("reading",false);visible("reader-idle",true);
+    if(!response.task){study.task=null;discardImages();visible("reading",false);visible("reader-idle",true);
       el("reader-idle").textContent="当前没有待评阅任务。";await refreshReader();return;}
     discardImages();
     const task=await api("/tasks/"+response.task.id);
@@ -393,11 +408,12 @@ async function startNext(){
       pane.dataset.phase=phase;
       const heading=document.createElement("span");heading.textContent=phase;
       const img=document.createElement("img");img.alt=phase+" CT";
+      img.draggable=false;
       pane.append(heading,img);
       pane.addEventListener("dblclick",event=>{
         event.preventDefault();
         study.expanded=study.expanded===phase?null:phase;
-        document.querySelectorAll(".phase").forEach(node=>node.classList.toggle("expanded",node.dataset.phase===study.expanded));
+        document.querySelectorAll("#phase-grid .phase").forEach(node=>node.classList.toggle("expanded",node.dataset.phase===study.expanded));
         grid.classList.toggle("focus",!!study.expanded);
         if(study.expanded)setZoom(phase,Math.max(1.7,transformFor(phase).zoom));
       });
@@ -426,39 +442,102 @@ async function startNext(){
   }catch(err){message(err.message,true);}
 }
 el("continue-button").onclick=startNext;
-function imageKey(phase,z){return [study.task.id,phase,z,study.lo,study.hi].join("|");}
-async function renderImages(){
-  if(!study.task)return;
-  const seq=++study.generation;
-  const task=study.task, z=study.z;
-  el("slice-position").textContent=(z+1)+" / "+task.depth;
-  await Promise.all(task.phases.map(async phase=>{
-    const pane=[...document.querySelectorAll(".phase")].find(node=>node.dataset.phase===phase);
-    const img=pane?.querySelector("img");if(!img)return;
-    const key=imageKey(phase,z);let url=study.images.get(key);
+function imageKey(phase,z,task=study.task){
+  return [task.id,phase,z,study.lo,study.hi].join("|");
+}
+async function cachedSlice(task,phase,z,epoch){
+  const key=imageKey(phase,z,task);
+  if(viewer.cache.has(key)){
+    const item=viewer.cache.get(key);
+    viewer.cache.delete(key);viewer.cache.set(key,item); // LRU touch
+    return item;
+  }
+  if(viewer.pending.has(key))return viewer.pending.get(key);
+  const promise=(async()=>{
+    const blob=await api("/tasks/"+task.id+"/images/"+phase+"/"+z+
+      "?lo="+encodeURIComponent(study.lo)+"&hi="+encodeURIComponent(study.hi),{binary:true});
+    const url=URL.createObjectURL(blob);
     try{
-      if(!url){
-        const blob=await api("/tasks/"+task.id+"/images/"+phase+"/"+z+
-          "?lo="+encodeURIComponent(study.lo)+"&hi="+encodeURIComponent(study.hi),{binary:true});
-        url=URL.createObjectURL(blob);study.images.set(key,url);
+      // Decode before swapping: otherwise the browser briefly paints a blank tile.
+      const preload=new Image();
+      preload.src=url;
+      if(preload.decode)await preload.decode();
+      else await new Promise((resolve,reject)=>{
+        if(preload.complete){preload.naturalWidth?resolve():reject(new Error("Invalid CT image"));return;}
+        preload.onload=resolve;preload.onerror=()=>reject(new Error("Invalid CT image"));
+      });
+      if(epoch!==study.generation||study.task?.id!==task.id){
+        URL.revokeObjectURL(url);return null;
       }
-      if(seq===study.generation&&study.task?.id===task.id)img.src=url;
-    }catch(err){
-      if(seq===study.generation){img.removeAttribute("src");message("切片读取失败："+err.message,true);}
-    }
-  }));
-  // Preserve current images while releasing older blob URLs.
-  if(study.images.size>32){
-    const keep=new Set(task.phases.map(p=>imageKey(p,z)));
-    for(const [key,url] of study.images){
-      if(study.images.size<=20)break;
-      if(!keep.has(key)){URL.revokeObjectURL(url);study.images.delete(key);}
+      const item={url};
+      viewer.cache.set(key,item);
+      trimImageCache(task);
+      return item;
+    }catch(err){URL.revokeObjectURL(url);throw err;}
+  })();
+  viewer.pending.set(key,promise);
+  try{return await promise;}
+  finally{if(viewer.pending.get(key)===promise)viewer.pending.delete(key);}
+}
+function trimImageCache(task){
+  // Keep current and adjacent slices. Never revoke a URL currently painted.
+  const pinned=new Set();
+  if(viewer.shown!==null){
+    for(const phase of task.phases)pinned.add(imageKey(phase,viewer.shown,task));
+  }
+  if(viewer.cache.size<=72)return;
+  for(const [key,item] of viewer.cache){
+    if(viewer.cache.size<=48)break;
+    if(!pinned.has(key)){
+      URL.revokeObjectURL(item.url);viewer.cache.delete(key);
     }
   }
 }
-function moveSlice(delta){
+async function renderImages(){
   if(!study.task)return;
-  study.z=Math.min(study.task.depth-1,Math.max(0,study.z+delta));renderImages();
+  const epoch=study.generation, request=++viewer.sliceEpoch;
+  const task=study.task,z=study.z;
+  el("slice-position").textContent=(z+1)+" / "+task.depth;
+  const phaseImages=await Promise.allSettled(task.phases.map(async phase=>({
+    phase,item:await cachedSlice(task,phase,z,epoch)
+  })));
+  if(epoch!==study.generation||task!==study.task||request!==viewer.sliceEpoch)return;
+  const failed=phaseImages.find(p=>p.status!=="fulfilled"||!p.value.item);
+  if(failed){
+    // Keep the last fully rendered phase group instead of clearing individual tiles.
+    message("切片加载失败，保留上一帧。请稍后重试。",true);
+    return;
+  }
+  if(viewer.frame!==null)cancelAnimationFrame(viewer.frame);
+  viewer.frame=requestAnimationFrame(()=>{
+    viewer.frame=null;
+    if(epoch!==study.generation||task!==study.task||request!==viewer.sliceEpoch)return;
+    for(const {value:{phase,item}} of phaseImages){
+      const img=[...document.querySelectorAll("#phase-grid .phase")].find(node=>node.dataset.phase===phase)?.querySelector("img");
+      if(img&&img.src!==item.url)img.src=item.url;
+    }
+    viewer.shown=z;
+    trimImageCache(task);
+    clearTimeout(viewer.prefetchTimer);
+    // Prefetch only after current slice is shown and the user briefly stops.
+    viewer.prefetchTimer=setTimeout(()=>{
+      if(epoch!==study.generation||task!==study.task||request!==viewer.sliceEpoch)return;
+      for(const offset of [-1,1]){
+        const neighbor=z+offset;
+        if(neighbor<0||neighbor>=task.depth)continue;
+        for(const phase of task.phases){
+          cachedSlice(task,phase,neighbor,epoch).catch(()=>{});
+        }
+      }
+    },100);
+  });
+}
+function moveSlice(delta){
+  if(!study.task||el("reading").hidden)return;
+  const next=Math.min(study.task.depth-1,Math.max(0,study.z+delta));
+  if(next===study.z)return;
+  study.z=next;
+  renderImages();
 }
 function transformFor(phase){
   if(!study.transforms.has(phase))study.transforms.set(phase,{zoom:1,x:0,y:0});
@@ -477,12 +556,27 @@ function setZoom(phase,value){
   applyTransform(phase);
 }
 el("phase-grid").addEventListener("wheel",e=>{
-  if(!study.task)return;
+  if(!study.task||el("reading").hidden)return;
   e.preventDefault();
   const pane=e.target.closest(".phase");
   if(e.ctrlKey||e.metaKey||e.shiftKey){
     if(pane)setZoom(pane.dataset.phase,transformFor(pane.dataset.phase).zoom*(e.deltaY<0?1.15:1/1.15));
-  }else moveSlice(e.deltaY>0?1:-1);
+    return;
+  }
+  // Normalize browser wheel modes, then coalesce touchpad bursts per frame.
+  const amount=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?480:1);
+  const now=performance.now();
+  if(now-viewer.wheelAt>180)viewer.wheel=0;
+  viewer.wheelAt=now;
+  viewer.wheel+=amount;
+  if(viewer.wheelFrame!==null)return;
+  viewer.wheelFrame=requestAnimationFrame(()=>{
+    viewer.wheelFrame=null;
+    const steps=Math.trunc(viewer.wheel/55);
+    if(!steps)return;
+    viewer.wheel-=steps*55;
+    moveSlice(Math.max(-3,Math.min(3,steps)));
+  });
 },{passive:false});
 document.addEventListener("keydown",e=>{
   if(!study.task||el("reading").hidden||["INPUT","TEXTAREA","SELECT"].includes(document.activeElement?.tagName))return;
