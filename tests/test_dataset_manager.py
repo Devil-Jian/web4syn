@@ -76,3 +76,70 @@ def test_scan_preserves_exclusions_and_missing_rows(setup):
     row=client.get("/api/rct/admin/dataset/files?filter=missing",headers=auth).json()["items"][0]
     assert row["id"]==selected and row["included"]==0 and row["missing"]==1
     assert client.get("/api/rct/admin/dataset/status",headers=auth).json()["counts"]["total"]==3
+
+def test_gated_admin_reset_preserves_index_and_backups(setup, monkeypatch):
+    client, admin_auth, root = setup
+    for i in range(4):
+        pack(root / f"R{i}.h5", "HCC")
+    dataset_manager.run_scan()
+    listing = client.get("/api/rct/admin/dataset/files",headers=admin_auth).json()["items"]
+    excluded_id = listing[0]["id"]
+    response=client.post("/api/rct/admin/dataset/selection",headers=admin_auth,
+        json={"ids":[excluded_id],"included":False,"reason":"manual exclusion"})
+    assert response.status_code==200
+    assert client.post("/api/rct/admin/dataset/freeze",headers=admin_auth).status_code==200
+    for i in range(6):
+        created=client.post("/api/rct/admin/readers",headers=admin_auth,json={
+            "username":f"ResetReader{i}","display_name":f"Reader{i}",
+            "password":"reader-test-password-1234","level":"junior"})
+        assert created.status_code==200,created.text
+    assigned=client.post("/api/rct/admin/randomize",headers=admin_auth,json={"seed":"reset-test"})
+    assert assigned.status_code==200,assigned.text
+    assert client.post("/api/rct/admin/publish",headers=admin_auth).status_code==200
+    with rct.database() as db:
+        a=db.execute("SELECT id,reader_id FROM rct_tasks LIMIT 1").fetchone()
+        username=db.execute("SELECT username FROM rct_users WHERE id=?",(a["reader_id"],)).fetchone()[0]
+    logged=client.post("/api/rct/auth/login",json={"username":username,"password":"reader-test-password-1234"})
+    reader_auth={"Authorization":"Bearer "+logged.json()["token"]}
+    assert client.get(f"/api/rct/tasks/{a['id']}",headers=reader_auth).status_code==200
+    submitted=client.post(f"/api/rct/tasks/{a['id']}/submit",headers=reader_auth,json={
+        "submission_key":"reset-submission-123456","lesion_visible":"yes",
+        "diagnosis":"HCC","malignancy_risk":4})
+    assert submitted.status_code==200,submitted.text
+    payload={"confirm":"RESET TEST STUDY","password":"test-admin-password-1234"}
+    assert client.post("/api/rct/admin/reset-test-study",headers=admin_auth,json=payload).status_code==403
+    monkeypatch.setenv("WEB4SYN_RCT_ALLOW_TEST_RESET","1")
+    bad=client.post("/api/rct/admin/reset-test-study",headers=admin_auth,
+        json={"confirm":"RESET TEST STUDY","password":"wrong"})
+    assert bad.status_code==403
+    result=client.post("/api/rct/admin/reset-test-study",headers=admin_auth,json=payload)
+    assert result.status_code==200,result.text
+    assert result.json()["removed_tasks"]==3
+    assert result.json()["removed_results"]==1
+    assert (rct.DATABASE.parent/"rct_backups"/result.json()["backup_name"]).is_file()
+    with rct.database() as db:
+        assert db.execute("SELECT COUNT(*) FROM rct_tasks").fetchone()[0]==0
+        assert db.execute("SELECT COUNT(*) FROM rct_results").fetchone()[0]==0
+        assert db.execute("SELECT COUNT(*) FROM rct_patients").fetchone()[0]==0
+        assert db.execute("SELECT COUNT(*) FROM rct_users WHERE role='reader'").fetchone()[0]==6
+        assert db.execute("SELECT status,target FROM rct_studies").fetchone()["status"]=="draft"
+        assert db.execute("SELECT COUNT(*) FROM rct_audit WHERE action='test_study_reset'").fetchone()[0]==1
+        assert db.execute("SELECT COUNT(*) FROM rct_source_files").fetchone()[0]==4
+        assert db.execute("SELECT frozen_at FROM rct_scan_state").fetchone()[0] is None
+    assert client.get("/api/rct/admin/dataset/status",headers=admin_auth).json()["counts"]["excluded"]==1
+    assert client.get("/api/rct/me",headers=reader_auth).status_code==401
+    # Reselect previously excluded patient and freeze new cohort.
+    assert client.post("/api/rct/admin/dataset/selection",headers=admin_auth,
+        json={"ids":[excluded_id],"included":True}).status_code==200
+    fresh=client.post("/api/rct/admin/dataset/freeze",headers=admin_auth)
+    assert fresh.status_code==200 and fresh.json()["count"]==4
+
+
+def test_locked_study_cannot_be_reset(setup, monkeypatch):
+    client, auth, root=setup
+    monkeypatch.setenv("WEB4SYN_RCT_ALLOW_TEST_RESET","1")
+    with rct.database() as db:
+        db.execute("UPDATE rct_studies SET status='locked' WHERE id=1")
+    res=client.post("/api/rct/admin/reset-test-study",headers=auth,json={
+        "confirm":"RESET TEST STUDY","password":"test-admin-password-1234"})
+    assert res.status_code==409
