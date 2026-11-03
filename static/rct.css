@@ -30,3 +30,18 @@
 #registration-panel h2{font-size:19px;margin:0 0 6px;color:#1a344f}
 #registration-panel .hint{margin:5px 0 15px;line-height:1.6}
 #registration-result{min-height:18px;word-break:break-word}
+
+/* Reader workstation: compact case header, live elapsed time and aligned diagnosis labels. */
+.reading-head{gap:20px;flex-wrap:wrap}
+.reading-head #case-number{font-size:20px;letter-spacing:.35px;color:#1a344f;font-variant-numeric:tabular-nums}
+.reading-timer{margin-left:auto;display:inline-flex;align-items:center;gap:10px;color:#58758c;font-size:13px;white-space:nowrap}
+.reading-timer #reading-elapsed{font-size:17px;color:#1a344f;font-variant-numeric:tabular-nums}
+#reader-idle{display:flex;align-items:center;justify-content:space-between;gap:20px}
+#reader-idle #reader-summary{font-size:13px;color:#577188}
+.diseases{grid-template-columns:minmax(0,1fr);gap:7px}
+.diseases label.disease-option{display:grid;grid-template-columns:16px minmax(0,1fr) 52px;align-items:center;column-gap:10px;min-height:38px;line-height:1.45;padding:9px 11px}
+.disease-option input{margin:0}
+.disease-name{min-width:0;font-size:13px;color:#274663}
+.diseases .disease-option small{display:block;margin:0;text-align:left;font-size:12px;font-weight:600;line-height:1.4;color:#7791a6}
+.disease-example{display:block;margin-top:3px;color:#7890a5;font-size:11px;font-weight:400}
+@media(max-width:650px){#reader-idle{align-items:stretch;flex-direction:column}.reading-timer{margin-left:0}}
