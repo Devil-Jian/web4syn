@@ -143,3 +143,71 @@ def test_locked_study_cannot_be_reset(setup, monkeypatch):
     res=client.post("/api/rct/admin/reset-test-study",headers=auth,json={
         "confirm":"RESET TEST STUDY","password":"test-admin-password-1234"})
     assert res.status_code==409
+
+
+def test_one_click_launch_freezes_randomizes_and_publishes(setup):
+    client, auth, root=setup
+    for i in range(8):
+        pack(root / f"S{i}.h5", "HCC")
+    dataset_manager.run_scan()
+    files=client.get("/api/rct/admin/dataset/files",headers=auth).json()["items"]
+    excluded=files[0]["id"]
+    assert client.post("/api/rct/admin/dataset/selection",headers=auth,json={
+        "ids":[excluded],"included":False}).status_code==200
+    pre=client.get("/api/rct/admin/dataset/launch/status",headers=auth).json()
+    assert not pre["ready"] and pre["included"]==7
+    assert "6–9" in str(pre["errors"])
+    denied=client.post("/api/rct/admin/dataset/launch",headers=auth)
+    assert denied.status_code==409
+    for i in range(6):
+        res=client.post("/api/rct/admin/readers",headers=auth,json={
+            "username":f"AutoDoctor{i}","display_name":f"Doctor {i}",
+            "password":"doctor-password-12345","level":"junior"})
+        assert res.status_code==200,res.text
+    ready=client.get("/api/rct/admin/dataset/launch/status",headers=auth).json()
+    assert ready["ready"] and ready["included"]==7
+    published=client.post("/api/rct/admin/dataset/launch",headers=auth)
+    assert published.status_code==200,published.text
+    result=published.json()
+    assert result["tasks"]==7 and sum(result["arms"].values())==7
+    db=client.get("/api/rct/admin/study",headers=auth).json()
+    assert db["status"]=="published" and db["target"]==7 and db["patients"]==7
+    counts=client.get("/api/rct/admin/dataset/launch/status",headers=auth).json()
+    assert counts["stage"]=="published" and not counts["ready"]
+    assert client.post("/api/rct/admin/dataset/launch",headers=auth).status_code==409
+    assert client.post("/api/rct/admin/dataset/selection",headers=auth,json={
+        "ids":[excluded],"included":True}).status_code==409
+    with rct.database() as c:
+        assert c.execute("SELECT COUNT(*) FROM rct_tasks").fetchone()[0]==7
+        assert c.execute("SELECT COUNT(DISTINCT patient_id) FROM rct_tasks").fetchone()[0]==7
+
+
+def test_one_click_launch_handles_preexisting_frozen_or_randomized(setup):
+    client, auth, root=setup
+    for i in range(6):
+        pack(root / f"T{i}.h5", "HCC")
+    dataset_manager.run_scan()
+    for i in range(6):
+        res=client.post("/api/rct/admin/readers",headers=auth,json={
+            "username":f"ExistingDoctor{i}","display_name":f"Doctor {i}",
+            "password":"doctor-password-12345","level":"junior"})
+        assert res.status_code==200
+    assert client.post("/api/rct/admin/dataset/freeze",headers=auth).status_code==200
+    # Previously frozen studies should still publish via one button.
+    assert client.get("/api/rct/admin/dataset/launch/status",headers=auth).json()["ready"]
+    assert client.post("/api/rct/admin/dataset/launch",headers=auth).status_code==200
+
+
+def test_one_click_launch_does_not_partial_write_on_failure(setup):
+    client, auth, root=setup
+    for i in range(2):
+        pack(root / f"U{i}.h5", "HCC")
+    dataset_manager.run_scan()
+    for i in range(6):
+        assert client.post("/api/rct/admin/readers",headers=auth,json={
+            "username":f"SmallDoctor{i}","display_name":f"Doctor {i}",
+            "password":"doctor-password-12345","level":"junior"}).status_code==200
+    res=client.post("/api/rct/admin/dataset/launch",headers=auth)
+    assert res.status_code==409
+    db=client.get("/api/rct/admin/study",headers=auth).json()
+    assert db["patients"]==0 and db["tasks"]==0 and db["status"]=="draft"
