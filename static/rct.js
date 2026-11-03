@@ -24,8 +24,34 @@ async function api(path, {method="GET", body=null, binary=false}={}) {
   return binary?response.blob():response.json();
 }
 function formData(form) { return Object.fromEntries(new FormData(form)); }
+function toggleRegistration(open){
+  visible("registration-panel",open);
+  visible("login-form",!open);
+  visible("show-register",!open);
+  if(open)el("registration-result").textContent="";
+}
+el("show-register").onclick=()=>toggleRegistration(true);
+el("cancel-register").onclick=()=>toggleRegistration(false);
+el("registration-form").onsubmit=async event=>{
+  event.preventDefault();
+  const form=event.currentTarget;
+  if(form.elements.password.value!==form.elements.confirm_password.value){
+    el("registration-result").textContent="两次输入的密码不一致";return;
+  }
+  const data=formData(form);
+  delete data.confirm_password;
+  const submit=form.querySelector('button[type="submit"]');
+  submit.disabled=true;
+  try{
+    await api("/auth/register",{method:"POST",body:data});
+    form.reset();
+    el("registration-result").textContent="注册已提交，请联系研究管理员审核启用。审核通过后返回登录。";
+  }catch(err){el("registration-result").textContent=err.message;}
+  finally{submit.disabled=false;}
+};
 function showLogin() {
   study.user=null;
+  toggleRegistration(false);
   visible("login-section",true); visible("admin-section",false);visible("reader-section",false);
   visible("logout",false);el("identity").textContent="未登录";
 }
@@ -79,7 +105,7 @@ function renderReaderManager(doctors,info){
     const row=document.createElement("tr");
     for(const value of [doctor.username,doctor.display_name,
       ({junior:"初级",intermediate:"中级",senior:"高级"})[doctor.level]||doctor.level,
-      doctor.enabled?"启用":"停用",doctor.assigned,doctor.completed]){
+      doctor.registration_status==="pending"?"待审核":(doctor.enabled?"启用":"停用"),doctor.assigned,doctor.completed]){
       const td=document.createElement("td");td.textContent=String(value??"—");row.append(td);
     }
     const actions=document.createElement("td");actions.className="reader-actions";
@@ -105,10 +131,11 @@ function renderReaderManager(doctors,info){
     actions.append(pw);
     const toggle=document.createElement("button");toggle.type="button";
     toggle.className=doctor.enabled?"danger-outline":"quiet";
-    toggle.textContent=doctor.enabled?"停用":"启用";
+    toggle.textContent=doctor.registration_status==="pending"?"审核通过":(doctor.enabled?"停用":"启用");
     toggle.disabled=info.status!=="draft"||doctor.assigned>0;
     toggle.onclick=async()=>{
-      if(!confirm((doctor.enabled?"停用":"启用")+"账户 "+doctor.username+"？"))return;
+      const operation=doctor.registration_status==="pending"?"审核通过":doctor.enabled?"停用":"启用";
+      if(!confirm(operation+"账户 "+doctor.username+"？"))return;
       try{
         await api("/admin/readers/"+doctor.id+"/status",{
           method:"PATCH",body:{enabled:!doctor.enabled}
