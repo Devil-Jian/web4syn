@@ -211,3 +211,72 @@ def test_one_click_launch_does_not_partial_write_on_failure(setup):
     assert res.status_code==409
     db=client.get("/api/rct/admin/study",headers=auth).json()
     assert db["patients"]==0 and db["tasks"]==0 and db["status"]=="draft"
+
+
+def test_force_end_partial_round_and_publish_second_round(setup):
+    client, administrator, root=setup
+    for i in range(8):
+        pack(root/f"ROUND{i}.h5","HCC")
+    assert dataset_manager.run_scan()
+    for i in range(6):
+        res=client.post("/api/rct/admin/readers",headers=administrator,json={
+            "username":f"RoundReader{i}","display_name":f"Doctor {i}",
+            "password":"doctor-password-12345","level":"junior"})
+        assert res.status_code==200,res.text
+    launch=client.post("/api/rct/admin/dataset/launch",headers=administrator)
+    assert launch.status_code==200,launch.text
+    with rct.database() as db:
+        task=db.execute("SELECT id,reader_id FROM rct_tasks LIMIT 1").fetchone()
+        reader_name=db.execute("SELECT username FROM rct_users WHERE id=?",
+                               (task["reader_id"],)).fetchone()[0]
+    token=client.post("/api/rct/auth/login",json={
+        "username":reader_name,"password":"doctor-password-12345"})
+    assert token.status_code==200
+    doctor_auth={"Authorization":"Bearer "+token.json()["token"]}
+    assert client.get(f"/api/rct/tasks/{task['id']}",headers=doctor_auth).status_code==200
+    submit=client.post(f"/api/rct/tasks/{task['id']}/submit",headers=doctor_auth,json={
+        "submission_key":"partial-round-submission-1234",
+        "lesion_visible":"yes","diagnosis":"HCC","malignancy_risk":4})
+    assert submit.status_code==200,submit.text
+    req={"confirm":"END CURRENT ROUND","admin_password":"test-admin-password-1234",
+         "reason":"First test complete"}
+    assert client.post("/api/rct/admin/end-round",headers=doctor_auth,json=req).status_code==403
+    assert client.post("/api/rct/admin/end-round",headers=administrator,json={
+        **req,"admin_password":"incorrect"}).status_code==403
+    assert client.post("/api/rct/admin/end-round",headers=administrator,json={
+        **req,"confirm":"not-confirmed"}).status_code==422
+    ended=client.post("/api/rct/admin/end-round",headers=administrator,json=req)
+    assert ended.status_code==200,ended.text
+    data=ended.json()
+    assert data["assigned"]==8 and data["completed"]==1 and data["incomplete"]==7
+    assert client.get("/api/rct/me",headers=doctor_auth).status_code==401
+    state=client.get("/api/rct/admin/study",headers=administrator).json()
+    assert state["status"]=="draft" and state["patients"]==0 and state["tasks"]==0
+    history=client.get("/api/rct/admin/round-archives",headers=administrator)
+    assert history.status_code==200 and len(history.json())==1
+    assert history.json()[0]["ended_early"]==1
+    archive_id=data["archive_id"]
+    exported=client.get(f"/api/rct/admin/round-archives/{archive_id}/export.csv",
+                        headers=administrator)
+    assert exported.status_code==200
+    assert len(exported.text.strip().splitlines())==9
+    assert "HCC" in exported.text and "submitted" in exported.text
+    assert "assigned" in exported.text or "opened" in exported.text
+    assert client.post("/api/rct/admin/end-round",headers=administrator,json=req).status_code==409
+    # Second round can use the existing index and readers without resetting the database.
+    result=client.post("/api/rct/admin/dataset/launch",headers=administrator)
+    assert result.status_code==200,result.text
+    assert result.json()["tasks"]==8
+    assert client.get("/api/rct/admin/study",headers=administrator).json()["status"]=="published"
+    assert len(client.get("/api/rct/admin/round-archives",headers=administrator).json())==1
+    assert client.get(f"/api/rct/admin/round-archives/{archive_id}/export.csv",
+                      headers=administrator).status_code==200
+
+
+def test_force_end_requires_published_tasks(setup):
+    client, auth, root=setup
+    req={"confirm":"END CURRENT ROUND","admin_password":"test-admin-password-1234"}
+    assert client.post("/api/rct/admin/end-round",headers=auth,json=req).status_code==409
+    with rct.database() as db:
+        db.execute("UPDATE rct_studies SET status='locked' WHERE id=1")
+    assert client.post("/api/rct/admin/end-round",headers=auth,json=req).status_code==409
