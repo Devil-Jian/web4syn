@@ -47,13 +47,14 @@
         <p id="launch-result" class="hint"></p>
       </article>
       <article class="card">
-        <h2>① 医生账户管理</h2>
+        <h2>① 用户账号管理</h2>
+        <p class="hint">可直接添加医生账号、编辑、重置密码或删除。已有阅片任务的账号不能删除。</p>
         <form id="reader-form" class="stack compact">
           <label>登录账号 <input name="username" autocomplete="off" pattern="[A-Za-z0-9_-]+" required></label>
           <label>姓名/代号 <input name="display_name" required></label>
           <label>资历 <select name="level"><option value="junior">初级</option><option value="intermediate">中级</option><option value="senior">高级</option></select></label>
           <label>临时密码（≥6位） <input name="password" type="password" minlength="6" autocomplete="new-password" required></label>
-          <button>创建医生账号</button>
+          <button>添加账号</button>
         </form>
         <div class="data-list" id="reader-list"></div>
         <div id="reader-edit-panel" class="reader-editor" hidden>
@@ -172,5 +173,5 @@
   </section>
   <div id="notification" role="status" aria-live="polite"></div>
 </main>
-<script src="/static/rct.js?v=14" defer></script>
+<script src="/static/rct.js?v=15" defer></script>
 </body></html>
