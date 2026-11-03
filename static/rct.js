@@ -142,7 +142,21 @@ function renderReaderManager(doctors,info){
         });closeReaderEditors();await refreshAdmin();message("医生账户状态已更新");
       }catch(err){message(err.message,true);}
     };
-    actions.append(toggle);row.append(actions);body.append(row);
+    actions.append(toggle);
+    const remove=document.createElement("button");remove.type="button";
+    remove.className="danger-outline";remove.textContent="删除";
+    remove.disabled=doctor.assigned>0;
+    remove.title=doctor.assigned>0?"该账号已有阅片任务，不能直接删除":"删除账号";
+    remove.onclick=async()=>{
+      const typed=prompt("删除医生账号 "+doctor.username+"？该操作不可撤销。\\n请输入账号名称确认删除：","");
+      if(typed!==doctor.username){if(typed!==null)message("账号名称不匹配，未删除",true);return;}
+      remove.disabled=true;
+      try{
+        await api("/admin/readers/"+doctor.id,{method:"DELETE"});
+        closeReaderEditors();await refreshAdmin();message("已删除医生账号："+doctor.username);
+      }catch(err){message(err.message,true);remove.disabled=false;}
+    };
+    actions.append(remove);row.append(actions);body.append(row);
   }
   table.append(body);el("reader-list").replaceChildren(table);
 }
@@ -195,7 +209,6 @@ async function refreshAdmin() {
   el("progress-table").replaceChildren(smallTable([...counts.values()],
     [["arm","分组（仅管理员）"],["assigned","未开始"],["opened","已打开"],["submitted","已完成"]]));
   const draft=info.status==="draft";
-  el("reader-form").querySelector("button").disabled=!draft||info.tasks>0;
   await refreshLaunch();
   await loadDatasetStatus();
   await loadDatasetPage();
