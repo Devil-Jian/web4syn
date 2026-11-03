@@ -7,6 +7,7 @@ Official reader assignments are never changed by a rescan.
 from __future__ import annotations
 
 import hashlib
+import secrets
 import json
 import os
 import sqlite3
@@ -20,7 +21,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app import h5_source
-from app.rct import admin, audit, database, require_draft, study
+from app.rct import admin, audit, database, require_draft, study, allocation_plan, ARMS
 
 router = APIRouter(prefix="/api/rct/admin/dataset", tags=["study-dataset"])
 _SCAN_LOCK = threading.Lock()
@@ -263,59 +264,142 @@ def update_selection(payload: Selection, user=Depends(admin)):
     return {"ok": True, "updated": len(ids)}
 
 
+def freeze_selected_cohort(c, actor_id):
+    """Freeze explicitly included, accessible files into the current draft study."""
+    require_draft(c)
+    state = c.execute("SELECT * FROM rct_scan_state WHERE id=1").fetchone()
+    if state["status"] == "running" or state["last_finished"] is None or state["status"] == "failed":
+        raise HTTPException(409, "Complete a successful file scan before freezing")
+    if state["frozen_at"] is not None:
+        raise HTTPException(409, "Study cohort already frozen")
+    if c.execute("SELECT 1 FROM rct_tasks LIMIT 1").fetchone():
+        raise HTTPException(409, "Cannot change cohort after randomization")
+    selected = c.execute("""SELECT filename,patient_code,center,depth,mtime_ns,file_size
+       FROM rct_source_files WHERE included=1 AND missing=0 AND error IS NULL
+       ORDER BY filename""").fetchall()
+    if len(selected) < 3:
+        raise HTTPException(422, "At least three available selected files required")
+    if len(selected) > 10000:
+        raise HTTPException(422, "Selected cohort too large")
+    codes = [x["patient_code"] for x in selected]
+    if len(set(codes)) != len(codes):
+        raise HTTPException(409, "Duplicate patient codes in selected files")
+    # Avoid silently destroying historical manually imported patient IDs.
+    existing = c.execute("SELECT patient_code,pack_filename FROM rct_patients").fetchall()
+    if existing:
+        existing_names = {x["patient_code"]: x["pack_filename"] for x in existing}
+        selected_names = {x["patient_code"]: x["filename"] for x in selected}
+        conflicts = [key for key in existing_names.keys() & selected_names.keys()
+                     if existing_names[key] != selected_names[key]]
+        if conflicts:
+            raise HTTPException(409, "Existing patient identifiers reference different packs")
+    # Draft-only migration: selection is explicit and old assignments do not exist.
+    # Retain original IDs for included patients; excluded drafts can be removed.
+    if existing:
+        removed = sorted(set(existing_names) - set(codes))
+        for code in removed:
+            c.execute("DELETE FROM rct_patients WHERE patient_code=?", (code,))
+        if removed:
+            audit(c,actor_id,"draft_patients_excluded_on_freeze",{"count":len(removed)})
+    now = int(time.time())
+    for row in selected:
+        c.execute("""INSERT OR IGNORE INTO rct_patients
+                 (patient_code,pack_filename,center,depth,created_at)
+                 VALUES (?,?,?,?,?)""",
+                  (row["patient_code"],row["filename"],row["center"],row["depth"],now))
+    digest = hashlib.sha256(json.dumps(
+        [(x["filename"],x["mtime_ns"],x["file_size"]) for x in selected],
+        separators=(",",":")).encode()).hexdigest()
+    c.execute("UPDATE rct_studies SET target=? WHERE id=1", (len(selected),))
+    c.execute("""UPDATE rct_scan_state SET frozen_at=?,frozen_count=?,frozen_digest=? WHERE id=1""",
+              (now,len(selected),digest))
+    audit(c,actor_id,"dataset_frozen",{"count":len(selected),"digest":digest})
+    return {"ok": True, "count": len(selected), "digest": digest}
+
+
 @router.post("/freeze")
 def freeze_cohort(user=Depends(admin)):
-    """Explicitly snapshot selected candidates into rct_patients, never after tasks exist."""
     with database(immediate=True) as c:
-        require_draft(c)
-        state = c.execute("SELECT * FROM rct_scan_state WHERE id=1").fetchone()
-        if state["status"] == "running" or state["last_finished"] is None or state["status"] == "failed":
-            raise HTTPException(409, "Complete a successful file scan before freezing")
-        if state["frozen_at"] is not None:
-            raise HTTPException(409, "Study cohort already frozen")
-        if c.execute("SELECT 1 FROM rct_tasks LIMIT 1").fetchone():
-            raise HTTPException(409, "Cannot change cohort after randomization")
-        selected = c.execute("""SELECT filename,patient_code,center,depth,mtime_ns,file_size
-           FROM rct_source_files WHERE included=1 AND missing=0 AND error IS NULL
-           ORDER BY filename""").fetchall()
-        if len(selected) < 3:
-            raise HTTPException(422, "At least three available selected files required")
-        if len(selected) > 10000:
-            raise HTTPException(422, "Selected cohort too large")
-        codes = [x["patient_code"] for x in selected]
-        if len(set(codes)) != len(codes):
-            raise HTTPException(409, "Duplicate patient codes in selected files")
-        # Avoid silently destroying historical manually imported patient IDs.
-        existing = c.execute("SELECT patient_code,pack_filename FROM rct_patients").fetchall()
-        if existing:
-            existing_names = {x["patient_code"]: x["pack_filename"] for x in existing}
-            selected_names = {x["patient_code"]: x["filename"] for x in selected}
-            conflicts = [key for key in existing_names.keys() & selected_names.keys()
-                         if existing_names[key] != selected_names[key]]
-            if conflicts:
-                raise HTTPException(409, "Existing patient identifiers reference different packs")
-        # Draft-only migration: selection is explicit and old assignments do not exist.
-        # Retain original IDs for included patients; excluded drafts can be removed.
-        if existing:
-            removed = sorted(set(existing_names) - set(codes))
-            for code in removed:
-                c.execute("DELETE FROM rct_patients WHERE patient_code=?", (code,))
-            if removed:
-                audit(c,user["id"],"draft_patients_excluded_on_freeze",{"count":len(removed)})
-        now = int(time.time())
-        for row in selected:
-            c.execute("""INSERT OR IGNORE INTO rct_patients
-                     (patient_code,pack_filename,center,depth,created_at)
-                     VALUES (?,?,?,?,?)""",
-                      (row["patient_code"],row["filename"],row["center"],row["depth"],now))
-        digest = hashlib.sha256(json.dumps(
-            [(x["filename"],x["mtime_ns"],x["file_size"]) for x in selected],
-            separators=(",",":")).encode()).hexdigest()
-        c.execute("UPDATE rct_studies SET target=? WHERE id=1", (len(selected),))
-        c.execute("""UPDATE rct_scan_state SET frozen_at=?,frozen_count=?,frozen_digest=? WHERE id=1""",
-                  (now,len(selected),digest))
-        audit(c,user["id"],"dataset_frozen",{"count":len(selected),"digest":digest})
-    return {"ok":True,"count":len(selected),"digest":digest}
+        return freeze_selected_cohort(c,user["id"])
+
+
+def launch_state(c):
+    st=study(c)
+    scan=c.execute("SELECT * FROM rct_scan_state WHERE id=1").fetchone()
+    active=c.execute("SELECT COUNT(*) FROM rct_users WHERE role='reader' AND enabled=1").fetchone()[0]
+    assigned=c.execute("SELECT COUNT(*) FROM rct_tasks").fetchone()[0]
+    included=c.execute("""SELECT COUNT(*) FROM rct_source_files
+        WHERE included=1 AND missing=0 AND error IS NULL""").fetchone()[0]
+    errors=[]
+    if st["status"]=="locked":
+        errors.append("研究已经锁定，不能再次发布")
+    elif st["status"]=="published":
+        return {"stage":"published","ready":False,"reason":"已发布，医生可以阅片",
+                "included":included,"doctors":active,"tasks":assigned,"errors":[]}
+    elif assigned:
+        if assigned!=st["target"]:
+            errors.append("既有随机任务数与目标病例数不一致")
+    else:
+        if scan["frozen_at"] is None:
+            if scan["status"]!="idle" or scan["last_finished"] is None:
+                errors.append("文件目录尚未扫描完成")
+            if included<3:
+                errors.append("至少需要3例可用且已纳入的病例")
+            if included>10000:
+                errors.append("当前纳入病例超过10000例")
+        elif c.execute("SELECT COUNT(*) FROM rct_patients").fetchone()[0]!=st["target"]:
+            errors.append("锁定队列和研究目标病例数不一致")
+        if not 6<=active<=9:
+            errors.append("请先启用6–9名医生账号")
+    return {"stage":"assigned" if assigned else ("frozen" if scan["frozen_at"] else "select"),
+            "ready":not errors,"reason":None,"included":included,"doctors":active,
+            "tasks":assigned,"errors":errors}
+
+
+@router.get("/launch/status")
+def get_launch_status(user=Depends(admin)):
+    with database() as c:
+        return launch_state(c)
+
+
+@router.post("/launch")
+def launch_study(user=Depends(admin)):
+    """One atomic operation: freeze inclusion, randomize once, publish."""
+    with database(immediate=True) as c:
+        status=launch_state(c)
+        if not status["ready"]:
+            raise HTTPException(409,"；".join(status["errors"]) or status["reason"] or "研究不可重复发布")
+        if study(c)["status"]!="draft":
+            raise HTTPException(409,"Research not in draft state")
+        count=c.execute("SELECT COUNT(*) FROM rct_tasks").fetchone()[0]
+        snapshot=c.execute("SELECT frozen_at FROM rct_scan_state WHERE id=1").fetchone()
+        if not count and snapshot["frozen_at"] is None:
+            freeze_selected_cohort(c,user["id"])
+        if not count:
+            patients=[dict(x) for x in c.execute(
+                "SELECT id,center FROM rct_patients ORDER BY id")]
+            doctors=[dict(x) for x in c.execute(
+                "SELECT id,level FROM rct_users WHERE role='reader' AND enabled=1 ORDER BY id")]
+            if not 6<=len(doctors)<=9 or len(patients)!=study(c)["target"]:
+                raise HTTPException(409,"队列或医生数量已变化，请刷新后重试")
+            seed=secrets.token_hex(32)
+            plan,counts=allocation_plan(patients,doctors,seed)
+            c.executemany("""INSERT INTO rct_tasks
+                (patient_id,reader_id,arm,public_code,sort_order,assigned_at)
+                VALUES(?,?,?,?,?,?)""",plan)
+            digest=hashlib.sha256(seed.encode()).hexdigest()
+            c.execute("UPDATE rct_studies SET randomization_digest=? WHERE id=1",(digest,))
+            audit(c,user["id"],"randomized",{"arms":counts,"sha256_seed":digest,
+                                         "via":"one_click_launch"})
+        else:
+            counts={r["arm"]:r["n"] for r in c.execute(
+                "SELECT arm,COUNT(*) n FROM rct_tasks GROUP BY arm")}
+            digest=study(c)["randomization_digest"]
+        if c.execute("SELECT COUNT(*) FROM rct_tasks").fetchone()[0]!=study(c)["target"]:
+            raise HTTPException(409,"随机任务数与队列人数不一致")
+        c.execute("UPDATE rct_studies SET status='published' WHERE id=1")
+        audit(c,user["id"],"published",{"via":"one_click_launch","tasks":study(c)["target"]})
+        return {"ok":True,"tasks":study(c)["target"],"arms":counts,"seed_sha256":digest}
 
 
 @router.get("/files/{file_id}/images/{dataset}/{z}")
