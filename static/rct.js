@@ -485,6 +485,9 @@ function trimImageCache(task){
   if(viewer.shown!==null){
     for(const phase of task.phases)pinned.add(imageKey(phase,viewer.shown,task));
   }
+  // Protect the new target and any currently requested image from LRU eviction.
+  for(const phase of task.phases)pinned.add(imageKey(phase,study.z,task));
+  for(const key of viewer.pending.keys())pinned.add(key);
   if(viewer.cache.size<=72)return;
   for(const [key,item] of viewer.cache){
     if(viewer.cache.size<=48)break;
