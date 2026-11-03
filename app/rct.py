@@ -548,9 +548,7 @@ def create_reader(payload: ReaderCreate, user=Depends(admin)):
     if not PATTERN.fullmatch(payload.username):
         raise HTTPException(422, "Invalid reader username")
     with database(immediate=True) as c:
-        require_draft(c)
-        if c.execute("SELECT 1 FROM rct_tasks LIMIT 1").fetchone():
-            raise HTTPException(409, "Assignments already exist")
+        # New readers added during an active round have no assigned tasks.
         try:
             c.execute("""INSERT INTO rct_users(username,password_hash,role,display_name,level)
                          VALUES(?,?,'reader',?,?)""",
@@ -586,6 +584,21 @@ def require_managed_reader(c, reader_id):
 def reader_has_assignments(c, reader_id):
     return c.execute("SELECT 1 FROM rct_tasks WHERE reader_id=? LIMIT 1",
                      (reader_id,)).fetchone() is not None
+
+
+@router.delete("/admin/readers/{reader_id}")
+def delete_reader(reader_id: int, user=Depends(admin)):
+    """Delete unassigned doctor accounts without changing any clinical assignments."""
+    with database(immediate=True) as c:
+        record=require_managed_reader(c,reader_id)
+        if reader_has_assignments(c,reader_id):
+            raise HTTPException(409,"该医生已有本轮阅片任务，请先结束并归档本轮任务")
+        c.execute("DELETE FROM rct_sessions WHERE user_id=?",(reader_id,))
+        c.execute("DELETE FROM rct_users WHERE id=? AND role='reader'",(reader_id,))
+        audit(c,user["id"],"reader_deleted",{
+            "reader_id":reader_id,"username":record["username"],
+            "display_name":record["display_name"]})
+    return {"ok":True,"username":record["username"]}
 
 
 @router.patch("/admin/readers/{reader_id}")
