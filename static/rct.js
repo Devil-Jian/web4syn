@@ -61,6 +61,91 @@ function smallTable(rows, columns) {
     const td=document.createElement("td");td.textContent=String(row[key]??"—");tr.append(td);
   });body.append(tr);});table.append(body);return table;
 }
+const readersUI={current:null,mode:null};
+function closeReaderEditors(){
+  visible("reader-edit-panel",false);
+  visible("reader-password-panel",false);
+  el("reader-password-form").reset();
+  readersUI.current=null;readersUI.mode=null;
+}
+function renderReaderManager(doctors,info){
+  const table=document.createElement("table");table.className="simple-table reader-table";
+  const head=document.createElement("thead");const tr=document.createElement("tr");
+  ["账号","姓名/代号","资历","状态","任务","完成","账户操作"].forEach(label=>{
+    const th=document.createElement("th");th.textContent=label;tr.append(th);
+  });head.append(tr);table.append(head);
+  const body=document.createElement("tbody");
+  for(const doctor of doctors){
+    const row=document.createElement("tr");
+    for(const value of [doctor.username,doctor.display_name,
+      ({junior:"初级",intermediate:"中级",senior:"高级"})[doctor.level]||doctor.level,
+      doctor.enabled?"启用":"停用",doctor.assigned,doctor.completed]){
+      const td=document.createElement("td");td.textContent=String(value??"—");row.append(td);
+    }
+    const actions=document.createElement("td");actions.className="reader-actions";
+    const edit=document.createElement("button");edit.className="quiet";
+    edit.type="button";edit.textContent="编辑";
+    edit.onclick=()=>{
+      closeReaderEditors();readersUI.current=doctor;readersUI.mode="edit";
+      const form=el("reader-edit-form");
+      form.elements.display_name.value=doctor.display_name;
+      form.elements.level.value=doctor.level;
+      // The grade is study protocol metadata and is fixed after assignments exist.
+      form.elements.level.disabled=info.status!=="draft"||info.tasks>0;
+      el("reader-edit-title").textContent="编辑医生 · "+doctor.username;
+      visible("reader-edit-panel",true);
+    };
+    actions.append(edit);
+    const pw=document.createElement("button");pw.type="button";pw.className="quiet";
+    pw.textContent="重置密码";pw.onclick=()=>{
+      closeReaderEditors();readersUI.current=doctor;readersUI.mode="password";
+      el("reader-password-title").textContent="重置密码 · "+doctor.username;
+      visible("reader-password-panel",true);
+    };
+    actions.append(pw);
+    const toggle=document.createElement("button");toggle.type="button";
+    toggle.className=doctor.enabled?"danger-outline":"quiet";
+    toggle.textContent=doctor.enabled?"停用":"启用";
+    toggle.disabled=info.status!=="draft"||doctor.assigned>0;
+    toggle.onclick=async()=>{
+      if(!confirm((doctor.enabled?"停用":"启用")+"账户 "+doctor.username+"？"))return;
+      try{
+        await api("/admin/readers/"+doctor.id+"/status",{
+          method:"PATCH",body:{enabled:!doctor.enabled}
+        });closeReaderEditors();await refreshAdmin();message("医生账户状态已更新");
+      }catch(err){message(err.message,true);}
+    };
+    actions.append(toggle);row.append(actions);body.append(row);
+  }
+  table.append(body);el("reader-list").replaceChildren(table);
+}
+el("reader-edit-cancel").onclick=closeReaderEditors;
+el("reader-password-cancel").onclick=closeReaderEditors;
+el("reader-edit-form").onsubmit=async e=>{
+  e.preventDefault();const doctor=readersUI.current;
+  if(!doctor||readersUI.mode!=="edit")return;
+  const form=e.currentTarget;
+  try{
+    await api("/admin/readers/"+doctor.id,{
+      method:"PATCH",body:{display_name:form.elements.display_name.value.trim(),
+        level:form.elements.level.disabled?doctor.level:form.elements.level.value}
+    });
+    closeReaderEditors();await refreshAdmin();message("医生信息已保存");
+  }catch(err){message(err.message,true);}
+};
+el("reader-password-form").onsubmit=async e=>{
+  e.preventDefault();const doctor=readersUI.current;
+  if(!doctor||readersUI.mode!=="password")return;
+  const form=e.currentTarget;
+  const body={password:form.elements.password.value,
+              admin_password:form.elements.admin_password.value};
+  try{
+    await api("/admin/readers/"+doctor.id+"/password",{method:"POST",body});
+    closeReaderEditors();await refreshAdmin();
+    message("密码已重置，该医生原有登录会话已失效");
+  }catch(err){form.elements.admin_password.value="";message(err.message,true);}
+};
+
 async function refreshAdmin() {
   const [info,doctors,progress]=await Promise.all([
     api("/admin/study"),api("/admin/readers"),api("/admin/progress")
@@ -75,8 +160,7 @@ async function refreshAdmin() {
     const caption=document.createElement("span");caption.textContent=name;
     div.append(num,caption);return div;
   }));
-  el("reader-list").replaceChildren(smallTable(doctors,[["username","医生"],["level","资历"],
-    ["assigned","任务"],["completed","完成"]]));
+  renderReaderManager(doctors,info);
   const counts=new Map();
   for(const entry of progress.by_arm) {
     const row=counts.get(entry.arm)||{arm:entry.arm,assigned:0,opened:0,submitted:0};
