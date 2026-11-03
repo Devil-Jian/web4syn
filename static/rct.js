@@ -87,7 +87,8 @@ async function refreshAdmin() {
   const draft=info.status==="draft";
   el("study-form").querySelector("button").disabled=!draft||info.tasks>0;
   el("reader-form").querySelector("button").disabled=!draft||info.tasks>0;
-  el("import-form").querySelector("button").disabled=!draft||info.tasks>0;
+  await loadDatasetStatus();
+  await loadDatasetPage();
   el("random-form").querySelector("button").disabled=!draft||info.tasks>0;
   el("publish-button").disabled=!draft||info.tasks!==info.target;
   el("lock-button").disabled=info.status!=="published";
@@ -106,30 +107,6 @@ el("reader-form").onsubmit=async e=>{
   try{await api("/admin/readers",{method:"POST",body:formData(form)});
     form.reset();message("医生账户已创建");await refreshAdmin();}
   catch(err){message(err.message,true);}
-};
-el("packs-button").onclick=async()=>{
-  try{
-    const response=await api("/admin/packs");visible("pack-list",true);
-    el("pack-list").textContent=response.packs.join("\n")||"未挂载HDF5文件";
-  }catch(err){message(err.message,true);}
-};
-el("import-form").onsubmit=async e=>{
-  e.preventDefault();
-  const form=e.currentTarget;
-  const lines=form.elements.rows.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
-  const patients=[];
-  for(const line of lines) {
-    if(line.toLowerCase()==="patient_code,pack_filename,center")continue;
-    const cols=line.split(",").map(x=>x.trim());
-    if(cols.length!==3||cols.some(x=>!x)) {message("CSV格式错误："+line,true);return;}
-    patients.push({patient_code:cols[0],pack_filename:cols[1],center:cols[2]});
-  }
-  if(!patients.length) {message("请填写至少1名患者",true);return;}
-  if(!confirm("导入 "+patients.length+" 名患者？请确认数据已匿名化。"))return;
-  try{
-    const data=await api("/admin/patients/import",{method:"POST",body:{patients}});
-    message("成功导入 "+data.imported+" 名患者");form.reset();await refreshAdmin();
-  }catch(err){message(err.message,true);}
 };
 el("random-form").onsubmit=async e=>{
   e.preventDefault();
@@ -159,6 +136,124 @@ el("export-button").onclick=async()=>{
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   }catch(err){message(err.message,true);}
 };
+
+
+/* Candidate file index; never communicates source labels or paths to reader views. */
+const datasetUI={page:1,pageSize:50,total:0,selected:new Set(),frozen:false,preview:null};
+async function loadDatasetStatus(){
+  const data=await api("/admin/dataset/status");
+  datasetUI.frozen=!!data.scan.frozen_at||data.study_status!=="draft";
+  const counts=data.counts||{};
+  el("dataset-counts").textContent="发现 "+(counts.total||0)+" · 拟纳入 "+(counts.included||0)+" · 排除 "+(counts.excluded||0)+" · 缺失 "+(counts.missing||0)+" · 无法读取 "+(counts.unreadable||0);
+  el("dataset-scan-status").textContent="扫描："+data.scan.status+
+    (data.scan.last_finished?" · 最近完成："+new Date(data.scan.last_finished*1000).toLocaleString():"")+
+    (data.scan.last_error?" · "+data.scan.last_error:"");
+  el("dataset-freeze").disabled=datasetUI.frozen||data.scan.status!=="idle"||!counts.included;
+  el("dataset-exclude").disabled=datasetUI.frozen;
+  el("dataset-restore").disabled=datasetUI.frozen;
+  return data;
+}
+function datasetTextCell(row,text){const td=document.createElement("td");td.textContent=String(text??"—");row.append(td);return td;}
+async function loadDatasetPage(){
+  datasetUI.selected.clear();
+  const args=new URLSearchParams({page:String(datasetUI.page),page_size:String(datasetUI.pageSize),
+    query:el("dataset-query").value.trim(),filter:el("dataset-filter").value});
+  const data=await api("/admin/dataset/files?"+args.toString());
+  datasetUI.total=data.total;
+  const table=document.createElement("table");table.className="simple-table";
+  const head=document.createElement("tr");
+  ["选择","Patient ID","文件名","标签","切片","纳入","文件状态","操作"].forEach(name=>{
+    const th=document.createElement("th");th.textContent=name;head.append(th);
+  });
+  const th=document.createElement("thead");th.append(head);table.append(th);
+  const body=document.createElement("tbody");
+  for(const item of data.items){
+    const tr=document.createElement("tr");
+    const choose=document.createElement("td");const checkbox=document.createElement("input");
+    checkbox.type="checkbox";checkbox.disabled=datasetUI.frozen;
+    checkbox.onchange=()=>checkbox.checked?datasetUI.selected.add(item.id):datasetUI.selected.delete(item.id);
+    choose.append(checkbox);tr.append(choose);
+    datasetTextCell(tr,item.patient_code);
+    datasetTextCell(tr,item.filename);
+    datasetTextCell(tr,item.label_type);
+    datasetTextCell(tr,item.depth);
+    datasetTextCell(tr,item.included?"拟纳入":"已排除");
+    datasetTextCell(tr,item.missing?"Missing":item.error||"Indexed");
+    const actions=document.createElement("td");const preview=document.createElement("button");
+    preview.className="quiet";preview.textContent="查看";
+    preview.onclick=()=>openDatasetPreview(item);
+    actions.append(preview);tr.append(actions);body.append(tr);
+  }
+  table.append(body);el("dataset-table").replaceChildren(table);
+  const pages=Math.max(1,Math.ceil(data.total/datasetUI.pageSize));
+  el("dataset-page").textContent="第 "+datasetUI.page+" / "+pages+" 页，共 "+data.total+" 例";
+  el("dataset-prev").disabled=datasetUI.page<=1;
+  el("dataset-next").disabled=datasetUI.page>=pages;
+}
+el("dataset-prev").onclick=async()=>{datasetUI.page--;try{await loadDatasetPage();}catch(e){message(e.message,true);}};
+el("dataset-next").onclick=async()=>{datasetUI.page++;try{await loadDatasetPage();}catch(e){message(e.message,true);}};
+el("dataset-search").onclick=async()=>{datasetUI.page=1;try{await loadDatasetPage();}catch(e){message(e.message,true);}};
+el("dataset-query").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();el("dataset-search").click();}};
+el("dataset-filter").onchange=()=>el("dataset-search").click();
+el("dataset-scan").onclick=async()=>{
+  try{await api("/admin/dataset/scan",{method:"POST"});message("已启动目录扫描");await loadDatasetStatus();}
+  catch(e){message(e.message,true);}
+};
+async function updateDatasetSelection(included){
+  const ids=[...datasetUI.selected];
+  if(!ids.length){message("请先勾选病例",true);return;}
+  if(datasetUI.frozen){message("队列已冻结",true);return;}
+  let reason=null;
+  if(!included){reason=prompt("排除原因（可留空）","");if(reason===null)return;}
+  try{
+    await api("/admin/dataset/selection",{method:"POST",body:{ids,included,reason}});
+    message("已更新 "+ids.length+" 例");
+    await loadDatasetStatus();await loadDatasetPage();
+  }catch(e){message(e.message,true);}
+}
+el("dataset-exclude").onclick=()=>updateDatasetSelection(false);
+el("dataset-restore").onclick=()=>updateDatasetSelection(true);
+el("dataset-freeze").onclick=async()=>{
+  if(!confirm("将当前纳入病例锁定为正式研究队列，并自动设置目标病例数。冻结后无法重新选择，是否继续？"))return;
+  try{
+    const data=await api("/admin/dataset/freeze",{method:"POST"});
+    message("已锁定 "+data.count+" 例研究队列");
+    await refreshAdmin();await loadDatasetPage();
+  }catch(e){message(e.message,true);}
+};
+el("dataset-preview-close").onclick=()=>{datasetUI.preview=null;visible("dataset-preview",false);};
+async function openDatasetPreview(item){
+  if(item.missing||item.error||!item.depth){message("此文件元数据不可用",true);return;}
+  datasetUI.preview={id:item.id,z:Math.floor(item.depth/2),depth:item.depth,revision:0};
+  el("dataset-preview-title").textContent=item.patient_code+" · 影像预览";
+  visible("dataset-preview",true);await drawDatasetPreview();
+}
+async function drawDatasetPreview(){
+  const p=datasetUI.preview;if(!p)return;
+  const seq=++p.revision;
+  const phaseNames=["NCCT","REAL_AP","REAL_PVP","REAL_DP","SYN_AP","SYN_PVP","SYN_DP"];
+  el("dataset-preview-z").textContent=(p.z+1)+" / "+p.depth;
+  const grid=el("dataset-preview-grid");grid.replaceChildren();
+  await Promise.all(phaseNames.map(async phase=>{
+    const tile=document.createElement("div");tile.className="phase";
+    const caption=document.createElement("span");caption.textContent=phase.replace("_"," ");
+    const img=document.createElement("img");img.alt=phase;
+    tile.append(caption,img);grid.append(tile);
+    try{
+      const blob=await api("/admin/dataset/files/"+p.id+"/images/"+phase+"/"+p.z,{binary:true});
+      if(datasetUI.preview!==p||p.revision!==seq)return;
+      const url=URL.createObjectURL(blob);img.onload=()=>URL.revokeObjectURL(url);
+      img.src=url;
+    }catch(e){caption.textContent=phase+" · 不可用";}
+  }));
+}
+function stepDatasetPreview(d){
+  const p=datasetUI.preview;if(!p)return;
+  p.z=Math.max(0,Math.min(p.depth-1,p.z+d));drawDatasetPreview();
+}
+el("dataset-preview-prev").onclick=()=>stepDatasetPreview(-1);
+el("dataset-preview-next").onclick=()=>stepDatasetPreview(1);
+el("dataset-preview-grid").addEventListener("wheel",e=>{e.preventDefault();stepDatasetPreview(e.deltaY>0?1:-1);},{passive:false});
 
 async function refreshReader(){
   const data=await api("/tasks/summary");
