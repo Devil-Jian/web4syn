@@ -17,11 +17,13 @@ Source branch: feat/three-arm-rw-rct-v2 (based on feat/reader-study-v1).
 ## Requirements
 
 Linux server with Docker Compose and read-only HDF5 packs. Each pack must contain the datasets:
-- ncct: [D,512,512]
-- real_cect: [3,D,512,512]
-- syn_cect: [3,D,512,512]
+- ncct: [D,512,512] float16 HU
+- real_cect: [D,3,512,512] float16 HU (new v2 format; legacy [3,D,512,512] is also supported)
+- syn_cect: [D,3,512,512] float16 HU (new v2 format; legacy [3,D,512,512] is also supported)
+- optional liver_mask and tumor_mask: [D,512,512] uint8; liver label 5 is used to select a representative slice, never shown to readers.
+- optional root attributes: patient_id, crop_z_start, crop_z_end, spacing_xyz, label_type; diagnostic labels are not exposed to readers.
 
-All 3 phases are ordered AP / PVP / DP. The viewer assumes anatomical alignment upstream. Each pack file basename and patient code must be pseudonymous and contain no directly identifying information.
+All 3 phases are ordered AP / PVP / DP. Server indexes the newer format as f[dataset][z,phase,:,:] and the legacy format as f[dataset][phase,z,:,:]. The root directory on the host defaults to /dataset/RCTs/data_h5_v2, mounted read-only into /packs. Only individual 2D slices are read. The viewer assumes anatomical alignment upstream. Each pack file basename and patient code must be pseudonymous and contain no directly identifying information.
 
 ## Install
 
