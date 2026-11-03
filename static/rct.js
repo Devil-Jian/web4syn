@@ -708,25 +708,30 @@ document.addEventListener("keydown",e=>{
 function syncDiagnosisFields(){
   const form=el("diagnosis-form");
   const present=form.querySelector('input[name="lesion_visible"]:checked')?.value;
-  const diag=form.querySelectorAll('input[name="diagnosis"]');
-  const risks=form.querySelectorAll('input[name="malignancy_risk"]');
-  diag.forEach(r=>{r.disabled=present==="no";if(r.disabled)r.checked=false;});
-  risks.forEach(r=>{r.disabled=present==="unsure";if(r.disabled)r.checked=false;});
-  el("diagnosis-field").classList.toggle("disabled",present==="no");
-  el("risk-field").classList.toggle("disabled",present==="unsure");
+  const rated=present==="yes";
+  for(const [field,id] of [["lesion_nature","nature-field"],
+                          ["diagnosis","diagnosis-field"],
+                          ["malignancy_risk","risk-field"]]){
+    const section=el(id);
+    section.disabled=!rated;
+    section.classList.toggle("disabled",!rated);
+    if(!rated)form.querySelectorAll('input[name="'+field+'"]').forEach(input=>input.checked=false);
+  }
 }
 el("diagnosis-form").querySelectorAll('input[name="lesion_visible"]').forEach(r=>r.onchange=syncDiagnosisFields);
 el("diagnosis-form").onsubmit=async e=>{
   e.preventDefault();
   if(!study.task||study.busy)return;
   const values=formData(e.currentTarget);
-  if(values.lesion_visible==="yes"&&(!values.diagnosis||!values.malignancy_risk)){
-    message("存在病灶时，必须选择疾病和恶性风险",true);return;
+  if(values.lesion_visible==="yes"&&
+     (!values.lesion_nature||!values.diagnosis||!values.malignancy_risk)){
+    message("存在病灶时，请完成性质判断、疾病类型及恶性风险评分",true);return;
   }
   study.busy=true;el("submit-button").disabled=true;
   const payload={
     submission_key: crypto.randomUUID()+"-"+Date.now(),
     lesion_visible:values.lesion_visible,
+    lesion_nature:values.lesion_nature||null,
     diagnosis:values.diagnosis||null,
     malignancy_risk:values.malignancy_risk?Number(values.malignancy_risk):null,
     client_active_seconds:Math.max(0,(Date.now()-study.startTime)/1000)
