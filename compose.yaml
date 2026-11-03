@@ -13,6 +13,7 @@ services:
       WEB4SYN_PACKS_ROOT: /packs
       WEB4SYN_RCT_ADMIN_PASSWORD: ${WEB4SYN_RCT_ADMIN_PASSWORD:?Set_a_12_character_or_longer_admin_password_in_dot_env}
       WEB4SYN_ENABLE_LEGACY_DEMO: "0"
+      WEB4SYN_RCT_ALLOW_TEST_RESET: ${WEB4SYN_RCT_ALLOW_TEST_RESET:-0}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
