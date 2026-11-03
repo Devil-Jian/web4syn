@@ -193,7 +193,6 @@ def test_doctor_self_registration_requires_administrator_approval(client):
     applicant={
         "username":"NewDoctor123",
         "display_name":"Doctor New",
-        "level":"intermediate",
         "password":"new-doctor-password-1234",
     }
     created=client.post("/api/rct/auth/register",json=applicant)
@@ -208,7 +207,6 @@ def test_doctor_self_registration_requires_administrator_approval(client):
         {**applicant,"username":"bad name"},
         {**applicant,"username":"ab"},
         {**applicant,"password":"short"},
-        {**applicant,"level":"self-proclaimed-admin"},
     ]:
         assert client.post("/api/rct/auth/register",json=invalid).status_code==422
     admin_auth=auth(client,"admin","change-this-in-production-12345")
@@ -216,6 +214,7 @@ def test_doctor_self_registration_requires_administrator_approval(client):
     doctor=next(x for x in doctors if x["username"]==applicant["username"])
     assert doctor["registration_status"]=="pending" and doctor["enabled"]==0
     assert doctor["assigned"]==0
+    assert doctor["level"] is None
     # A non-admin cannot review registration requests.
     assert client.patch(f"/api/rct/admin/readers/{doctor['id']}/status",
          json={"enabled":True}).status_code==401
@@ -243,7 +242,6 @@ def test_registration_works_when_study_published_but_cannot_approve_midround(cli
     application=client.post("/api/rct/auth/register",json={
         "username":"DoctorNextRound",
         "display_name":"Later Reader",
-        "level":"junior",
         "password":"valid-password-12345",
     })
     assert application.status_code==201,application.text
