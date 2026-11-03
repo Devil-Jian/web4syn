@@ -89,6 +89,19 @@ Use this only in a **test installation**. The reset control is disabled by defau
 
 A research study with status `locked` cannot be reset, even with the test flag enabled. Do not delete `rct.sqlite` to reset a real clinical study. Note that the SQLite backup includes potentially sensitive study metadata and results; restrict folder permissions and protect backup retention.
 
+## Ending an unfinished round and starting another
+
+The admin progress panel now has **强制结束本轮并开启下一轮** when the current study is published. This is separate from the destructive test reset.
+
+1. Click the button and confirm that you want to end the currently published round early.
+2. Re-enter the administrator password. The operation runs as **one SQLite transaction**: all patient assignments, assigned-arm data and existing reader responses are copied into permanent `rct_round_archives` / `rct_round_archive_tasks` tables, and only then are active tasks cleared.
+3. An archive records both **completed and incomplete** task statuses; no missing reader answer is imputed. All existing doctor sessions are revoked, so any open reader window must log in again.
+4. The active study returns to `draft` with no assigned patients. Doctor accounts, HDF5 file index, inclusion decisions and historical archives are retained.
+5. Reselect candidate cases as needed, then press **一键分配并发布任务** to start the next round.
+6. Historical rounds remain listed under the admin progress area, with an authorized CSV download containing both completed and unfinished cases.
+
+Important: This feature ends an active `published` round even when the task count is incomplete. It does not operate on formally `locked` studies. A new round may reuse the same cases or doctors: maintain distinct archived round identifiers in analysis. Archive tables contain sensitive case metadata and diagnosis results; limit server and account access. This is an administrative early-stop operation, not an approved clinical trial stopping rule.
+
 ## Simplified one-click study launch
 
 The administrator no longer needs to configure target sample size, set a randomization seed, freeze the cohort separately, or press a second Publish button. The main admin panel now shows **一键分配并发布任务** with readiness checks.
