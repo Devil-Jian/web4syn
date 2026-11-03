@@ -43,15 +43,34 @@ Bootstrap login: user admin, password is WEB4SYN_RCT_ADMIN_PASSWORD, **minimum 1
 
 When migrating from an existing container on port 8000, stop the old container and back up /var/lib/web4syn first. V2 defaults disable the anonymous V1 demo task API; never set WEB4SYN_ENABLE_LEGACY_DEMO=1 on an externally accessible service.
 
+## Automated patient dataset management (v2.2)
+
+HDF5 root: `/dataset/RCTs/data_h5_v2` on host, mounted read-only at `/packs` in the container. Set `WEB4SYN_PACKS_PATH` in your existing local `.env` file (changes to `.env.example` do not update `.env`).
+
+- On app startup, a background scan enumerates immediate `.h5` children (non-recursive); admin can manually rescan.
+- Scan stores filename, anonymous patient code based on filename stem, optional `label_type` and `spacing_xyz` attributes, NCCT dataset depth, size and mtime.
+- No image QC, phase validation, NaN checks, image reading, alignment analysis or mask review is performed; upstream server pipeline owns QC.
+- Files are indexed without copying or modifying HDF5. Failed metadata reads are reported as unreadable; removed files are marked missing and never silently dropped.
+- Admin searches and pages through the catalog, previews 2D NCCT/real/synthetic phases, and excludes/restores cases (with optional reason).
+- Exclusion decisions persist across rescans. Frozen/published studies cannot change inclusion decisions.
+- Click **Freeze final cohort** to snapshot currently included/available files into `rct_patients` and automatically set the target count. Existing draft patient identifiers are preserved if still included; excluded draft patients are removed only by this explicit freeze action and only before tasks exist.
+- Then create 6–9 doctors, run 1:1:1 randomization once, review allocations and publish.
+- Original randomized and submitted tasks remain intact across application upgrades or rescans. New files do not enter an already frozen study.
+- Before production, use pseudonymized filenames. The admin catalog contains file stems and clinical labels and is restricted to administrator accounts.
+
+### Important migration behavior
+
+Existing `rct.sqlite` is retained. Do **not** remove or reset the database to enable auto indexing.
+A study that already has randomized tasks remains fixed: you can scan/preview but cannot freeze a new cohort or exclude participants within the same study. Create a separate study database for a new experimental cohort if required.
+
 ## Admin operating procedure
 
-1. Set the target to 1600 and register 6–9 doctors, with correct reader levels.
-2. Prepare anonymized manifest CSV rows in the format: patient_code,pack_filename,center .
-3. Import all HDF5 packs and verify they have both real and synthetic contrast data.
-4. Run randomization once, obtaining precisely NCCT=533, AI=533, REAL=534 when 1600 subjects, because the remainder is assigned to the final arm (actual API returns counts). The SHA256 commitment of the random seed is logged. To reproduce allocations, supply and privately retain a known seed.
-5. Verify doctor workloads and publish task assignments.
-6. Doctors complete their own queues. Cases cannot be reopened after confirmed submission.
-7. Once all submitted, lock the study and export CSV for independent statistical analysis.
+1. Log in as admin and verify automatic directory scan completed; choose **Rescan** if needed.
+2. Review the candidate list and optionally exclude cases. The Web application does no medical QC.
+3. **Freeze final cohort**. The number of included files becomes the study target.
+4. Create/verify 6–9 readers, then randomize the frozen patient cohort once.
+5. Publish, let doctors perform one independent read per patient.
+6. After all tasks have been submitted, lock and export CSV.
 
 ## Diagnostic form validation
 
