@@ -406,6 +406,14 @@ def randomize(payload: RandomizationRequest, user=Depends(admin)):
         patients = [dict(x) for x in c.execute("SELECT id,center FROM rct_patients ORDER BY id")]
         doctors = [dict(x) for x in c.execute(
             "SELECT id,level FROM rct_users WHERE role='reader' AND enabled=1 ORDER BY id")]
+        # Auto-indexed datasets require an explicitly frozen cohort.
+        try:
+            snapshot = c.execute("SELECT frozen_at FROM rct_scan_state WHERE id=1").fetchone()
+            discovered = c.execute("SELECT COUNT(*) FROM rct_source_files").fetchone()[0]
+        except sqlite3.OperationalError:
+            snapshot, discovered = None, 0
+        if discovered and (not snapshot or snapshot["frozen_at"] is None):
+            raise HTTPException(409, "Freeze the selected dataset before randomization")
         if len(patients) != study(c)["target"]:
             raise HTTPException(422, f"Expected {study(c)['target']} eligible patients; got {len(patients)}")
         if not 6 <= len(doctors) <= 9:
