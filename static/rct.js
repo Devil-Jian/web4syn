@@ -151,7 +151,6 @@ async function refreshAdmin() {
     api("/admin/study"),api("/admin/readers"),api("/admin/progress")
   ]);
   el("study-status").textContent="状态："+info.status+" · 随机摘要："+(info.randomization_digest||"未随机");
-  el("study-form").elements.target.value=info.target;
   const cards=[["病例数",info.patients+"/"+info.target],["医生",info.readers],
     ["任务",info.tasks],["研究状态",info.status]];
   el("admin-metrics").replaceChildren(...cards.map(([name,value])=>{
@@ -169,13 +168,10 @@ async function refreshAdmin() {
   el("progress-table").replaceChildren(smallTable([...counts.values()],
     [["arm","分组（仅管理员）"],["assigned","未开始"],["opened","已打开"],["submitted","已完成"]]));
   const draft=info.status==="draft";
-  el("study-form").querySelector("button").disabled=!draft||info.tasks>0;
   el("reader-form").querySelector("button").disabled=!draft||info.tasks>0;
+  await refreshLaunch();
   await loadDatasetStatus();
-  el("study-form").querySelector("button").disabled ||= datasetUI.frozen;
   await loadDatasetPage();
-  el("random-form").querySelector("button").disabled=!draft||info.tasks>0;
-  el("publish-button").disabled=!draft||info.tasks!==info.target;
   el("lock-button").disabled=info.status!=="published";
   el("export-button").disabled=info.status!=="locked";
   visible("test-reset-panel", !!info.test_reset_enabled && info.status!=="locked");
@@ -184,11 +180,6 @@ async function refreshAdmin() {
 }
 el("admin-refresh").onclick=()=>refreshAdmin().catch(err=>message(err.message,true));
 el("progress-refresh").onclick=()=>refreshAdmin().catch(err=>message(err.message,true));
-el("study-form").onsubmit=async e=>{
-  e.preventDefault();
-  try{await api("/admin/study",{method:"PUT",body:{target:Number(e.currentTarget.elements.target.value)}});
-      message("已保存目标病例数");await refreshAdmin();}catch(err){message(err.message,true);}
-};
 el("reader-form").onsubmit=async e=>{
   e.preventDefault();
   const form=e.currentTarget;
@@ -196,20 +187,25 @@ el("reader-form").onsubmit=async e=>{
     form.reset();message("医生账户已创建");await refreshAdmin();}
   catch(err){message(err.message,true);}
 };
-el("random-form").onsubmit=async e=>{
-  e.preventDefault();
-  if(!confirm("随机化只能执行一次。确定已经检查病例数、中心与医生名单？"))return;
-  const seed=e.currentTarget.elements.seed.value.trim();
+async function refreshLaunch(){
+  const data=await api("/admin/dataset/launch/status");
+  el("launch-summary").textContent="拟纳入 "+data.included+" 例 · 已启用医生 "+data.doctors+" 人 · 已分配 "+data.tasks+" 例";
+  const published=data.stage==="published";
+  const locked=data.stage==="locked";
+  el("launch-button").disabled=!data.ready;
+  el("launch-button").textContent=published?"已发布，医生可以开始阅片":locked?"研究已锁定":"一键分配并发布任务";
+  el("launch-errors").textContent=data.errors?.length?data.errors.join("；"):(published?data.reason:"系统将自动完成队列锁定、随机分配及发布");
+}
+el("launch-button").onclick=async()=>{
+  const state=await api("/admin/dataset/launch/status");
+  if(!state.ready){message(state.errors?.join("；")||"当前不可发布",true);await refreshLaunch();return;}
+  if(!confirm("将 "+state.included+" 例患者分配给 "+state.doctors+" 名医生，并正式发布。确认后本轮队列和随机分组不可修改。是否继续？"))return;
+  const btn=el("launch-button");btn.disabled=true;
   try{
-    const res=await api("/admin/randomize",{method:"POST",body:{seed:seed||null}});
-    el("rand-result").textContent="已随机化："+JSON.stringify(res.arms)+" · 种子SHA256："+res.seed_sha256;
-    await refreshAdmin(); message("随机化已锁定，无法重新抽取");
-  }catch(err){message(err.message,true);}
-};
-el("publish-button").onclick=async()=>{
-  if(!confirm("发布后医生将可以阅片。确定发布全部任务？"))return;
-  try{await api("/admin/publish",{method:"POST"});await refreshAdmin();message("任务已发布");}
-  catch(err){message(err.message,true);}
+    const result=await api("/admin/dataset/launch",{method:"POST"});
+    el("launch-result").textContent="发布成功："+result.tasks+" 例，分组 "+JSON.stringify(result.arms);
+    await refreshAdmin();message("阅片任务已发布，医生现在可以登录开始阅片");
+  }catch(e){message(e.message,true);await refreshLaunch();}
 };
 el("lock-button").onclick=async()=>{
   if(!confirm("只有完成全部任务才可锁定；锁定后不能再阅片。确定锁定？"))return;
@@ -234,7 +230,7 @@ el("test-reset-button").onclick=async()=>{
   button.disabled=true;
   try{
     const result=await api("/admin/reset-test-study",{method:"POST",body:{confirm:typed,password}});
-    el("rand-result").textContent="";
+    el("launch-result").textContent="";
     datasetUI.page=1;datasetUI.selected.clear();datasetUI.preview=null;
     visible("dataset-preview",false);
     await refreshAdmin();
@@ -254,7 +250,6 @@ async function loadDatasetStatus(){
   el("dataset-scan-status").textContent="扫描："+data.scan.status+
     (data.scan.last_finished?" · 最近完成："+new Date(data.scan.last_finished*1000).toLocaleString():"")+
     (data.scan.last_error?" · "+data.scan.last_error:"");
-  el("dataset-freeze").disabled=datasetUI.frozen||data.scan.status!=="idle"||!counts.included;
   el("dataset-exclude").disabled=datasetUI.frozen;
   el("dataset-restore").disabled=datasetUI.frozen;
   clearTimeout(datasetUI.poll);
@@ -318,19 +313,11 @@ async function updateDatasetSelection(included){
   try{
     await api("/admin/dataset/selection",{method:"POST",body:{ids,included,reason}});
     message("已更新 "+ids.length+" 例");
-    await loadDatasetStatus();await loadDatasetPage();
+    await loadDatasetStatus();await loadDatasetPage();await refreshLaunch();
   }catch(e){message(e.message,true);}
 }
 el("dataset-exclude").onclick=()=>updateDatasetSelection(false);
 el("dataset-restore").onclick=()=>updateDatasetSelection(true);
-el("dataset-freeze").onclick=async()=>{
-  if(!confirm("将当前纳入病例锁定为正式研究队列，并自动设置目标病例数。冻结后无法重新选择，是否继续？"))return;
-  try{
-    const data=await api("/admin/dataset/freeze",{method:"POST"});
-    message("已锁定 "+data.count+" 例研究队列");
-    await refreshAdmin();await loadDatasetPage();
-  }catch(e){message(e.message,true);}
-};
 el("dataset-preview-close").onclick=()=>{datasetUI.preview=null;visible("dataset-preview",false);};
 async function openDatasetPreview(item){
   if(item.missing||item.error||!item.depth){message("此文件元数据不可用",true);return;}
