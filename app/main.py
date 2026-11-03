@@ -15,6 +15,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadF
 from fastapi.responses import FileResponse, StreamingResponse, Response, JSONResponse
 from app.h5_source import patient_files, describe, encode, render
 from app.rct import router as rct_router
+from app.dataset_manager import router as dataset_router, start_scan as start_dataset_scan
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -28,6 +29,13 @@ SESSION_TTL = 12 * 3600
 LABELS = {"HCC", "ICC", "MET", "FNH", "HEM", "CYST", "OTHER"}
 app = FastAPI(title="Web4Syn Clinical Study")
 app.include_router(rct_router)
+app.include_router(dataset_router)
+
+@app.on_event("startup")
+def auto_index_h5_files():
+    # Metadata-only scan occurs in a daemon thread; never block clinician logins.
+    start_dataset_scan()
+
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 @app.middleware("http")
