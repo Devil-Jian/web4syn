@@ -89,12 +89,12 @@ def test_single_assignment_three_arms_and_submit_once(client):
                 assert client.get(f"/api/rct/tasks/{task_id}/images/AP/6", headers=reader).status_code == 404
             invalid = client.post(f"/api/rct/tasks/{task_id}/submit", headers=reader, json={
                 "submission_key": secrets.token_hex(20), "lesion_visible": "yes",
-                "diagnosis": None, "malignancy_risk": 4,
+                "lesion_nature": "malignant", "diagnosis": None, "malignancy_risk": 4,
             })
             assert invalid.status_code == 422
             submission = {
                 "submission_key": secrets.token_hex(20), "lesion_visible": "yes",
-                "diagnosis": "HCC", "malignancy_risk": 4, "client_active_seconds": 45.2,
+                "lesion_nature": "malignant", "diagnosis": "HCC", "malignancy_risk": 4, "client_active_seconds": 45.2,
             }
             response = client.post(f"/api/rct/tasks/{task_id}/submit", headers=reader, json=submission)
             assert response.status_code == 200, response.text
@@ -111,6 +111,8 @@ def test_single_assignment_three_arms_and_submit_once(client):
     data = client.get("/api/rct/admin/export.csv", headers=admin)
     assert data.status_code == 200
     assert len(data.text.strip().splitlines()) == 7
+    assert "lesion_nature" in data.text.splitlines()[0]
+    assert "malignant" in data.text
 
 
 def test_allocation_balances_workload():
@@ -324,3 +326,56 @@ def test_admin_cannot_delete_reader_with_active_assignment(client):
     with rct.database() as c:
         assert c.execute("SELECT COUNT(*) FROM rct_tasks").fetchone()[0]==6
         assert c.execute("SELECT COUNT(*) FROM rct_audit WHERE action='reader_deleted'").fetchone()[0]==0
+
+
+def test_lesion_nature_required_and_independent_for_visible_lesion(client):
+    administrator=auth(client,"admin","change-this-in-production-12345")
+    populate(client,administrator,count=6)
+    assert client.post("/api/rct/admin/randomize",headers=administrator,
+                       json={"seed":"lesion-nature"}).status_code==200
+    assert client.post("/api/rct/admin/publish",headers=administrator).status_code==200
+    doctor=auth(client,"R01","reader-password-12345")
+    next_item=client.get("/api/rct/tasks/next",headers=doctor).json()["task"]
+    assert next_item is not None
+    task_id=next_item["id"]
+    assert client.get(f"/api/rct/tasks/{task_id}",headers=doctor).status_code==200
+    base={"submission_key":secrets.token_hex(20),"lesion_visible":"yes",
+          "diagnosis":"OTHER","malignancy_risk":3}
+    assert client.post(f"/api/rct/tasks/{task_id}/submit",headers=doctor,
+                       json=base).status_code==422
+    assert client.post(f"/api/rct/tasks/{task_id}/submit",headers=doctor,
+                       json={**base,"lesion_nature":"invalid"}).status_code==422
+    assert client.post(f"/api/rct/tasks/{task_id}/submit",headers=doctor,
+                       json={**base,"lesion_nature":"benign","malignancy_risk":None}).status_code==422
+    for presence in ["no","unsure"]:
+        assert client.post(f"/api/rct/tasks/{task_id}/submit",headers=doctor,
+            json={**base,"lesion_visible":presence,"lesion_nature":"benign"}).status_code==422
+        assert client.post(f"/api/rct/tasks/{task_id}/submit",headers=doctor,
+            json={**base,"lesion_visible":presence,"lesion_nature":None}).status_code==422
+    # Nature and 1-5 risk are saved independently, without auto-inference.
+    saved=client.post(f"/api/rct/tasks/{task_id}/submit",headers=doctor,
+       json={**base,"lesion_nature":"unsure"})
+    assert saved.status_code==200,saved.text
+    with rct.database() as db:
+        row=db.execute("SELECT lesion_visible,lesion_nature,diagnosis,malignancy_risk "
+                       "FROM rct_results WHERE task_id=?",(task_id,)).fetchone()
+        assert dict(row)=={"lesion_visible":"yes","lesion_nature":"unsure",
+                           "diagnosis":"OTHER","malignancy_risk":3}
+
+
+def test_absent_lesion_has_no_nature_diagnosis_or_risk(client):
+    administrator=auth(client,"admin","change-this-in-production-12345")
+    populate(client,administrator,count=6)
+    assert client.post("/api/rct/admin/randomize",headers=administrator,
+                       json={"seed":"no-lesion"}).status_code==200
+    assert client.post("/api/rct/admin/publish",headers=administrator).status_code==200
+    doctor=auth(client,"R01","reader-password-12345")
+    task=client.get("/api/rct/tasks/next",headers=doctor).json()["task"]
+    assert client.get(f"/api/rct/tasks/{task['id']}",headers=doctor).status_code==200
+    response=client.post(f"/api/rct/tasks/{task['id']}/submit",headers=doctor,json={
+        "submission_key":secrets.token_hex(20),"lesion_visible":"no"})
+    assert response.status_code==200,response.text
+    with rct.database() as db:
+        result=db.execute("SELECT lesion_nature,diagnosis,malignancy_risk "
+                          "FROM rct_results WHERE task_id=?",(task["id"],)).fetchone()
+        assert all(x is None for x in result)
