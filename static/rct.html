@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Web4Syn · Three-Arm Clinical Study</title>
-  <link rel="stylesheet" href="/static/rct.css?v=4">
+  <link rel="stylesheet" href="/static/rct.css?v=5">
 </head>
 <body>
 <header class="topbar">
@@ -42,19 +42,50 @@
         </form>
         <div class="data-list" id="reader-list"></div>
       </article>
-      <article class="card">
-        <h2>03 · 导入HDF5病例</h2>
-        <p class="hint">每行：患者代号, HDF5文件名, 数据中心。必须来自容器 /packs 且具备 NCCT + Real + Syn 四期影像。不要填写姓名或住院号。</p>
-        <form id="import-form" class="stack compact">
-          <label>CSV行（无表头或使用 patient_code,pack_filename,center 表头）<textarea name="rows" rows="7" placeholder="P0001,P0001.h5,GX&#10;P0002,P0002.h5,HX" required></textarea></label>
-          <button>检查并导入病例</button>
-        </form>
-        <button class="quiet" id="packs-button">查看挂载的HDF5文件名</button>
-        <pre class="scrollbox" id="pack-list" hidden></pre>
+      <article class="card wide">
+        <h2>03 · 患者数据集管理</h2>
+        <p class="hint">自动扫描 /dataset/RCTs/data_h5_v2；只建立文件索引，不执行影像质量检查。源文件保持只读。</p>
+        <div class="dataset-toolbar">
+          <button id="dataset-scan" class="quiet">重新扫描目录</button>
+          <span id="dataset-scan-status" class="hint">等待扫描状态</span>
+          <button id="dataset-freeze" class="danger-outline">锁定最终纳入队列</button>
+        </div>
+        <div id="dataset-counts" class="dataset-counts"></div>
+        <div class="dataset-toolbar">
+          <input id="dataset-query" placeholder="搜索患者编号、文件名或标签" aria-label="搜索患者">
+          <select id="dataset-filter" aria-label="病例状态">
+            <option value="all">全部病例</option>
+            <option value="included">拟纳入</option>
+            <option value="excluded">已排除</option>
+            <option value="missing">文件缺失</option>
+            <option value="unreadable">元数据无法读取</option>
+          </select>
+          <button class="quiet" id="dataset-search">筛选</button>
+          <button class="danger-outline" id="dataset-exclude">排除所选</button>
+          <button class="quiet" id="dataset-restore">恢复所选</button>
+        </div>
+        <div class="data-list" id="dataset-table"></div>
+        <div class="dataset-toolbar">
+          <button class="quiet" id="dataset-prev">上一页</button>
+          <span id="dataset-page"></span>
+          <button class="quiet" id="dataset-next">下一页</button>
+        </div>
+        <div id="dataset-preview" class="dataset-preview" hidden>
+          <div class="dataset-toolbar">
+            <strong id="dataset-preview-title"></strong>
+            <button class="quiet" id="dataset-preview-close">关闭预览</button>
+          </div>
+          <div class="phase-grid" id="dataset-preview-grid"></div>
+          <div class="dataset-toolbar">
+            <button class="quiet" id="dataset-preview-prev">◀</button>
+            <span id="dataset-preview-z"></span>
+            <button class="quiet" id="dataset-preview-next">▶</button>
+          </div>
+        </div>
       </article>
       <article class="card">
         <h2>04 · 随机化 / 发布</h2>
-        <p class="hint">要求患者数量与目标一致，且存在6–9名医生。随机化后不可重抽。请先检查患者清单与医生资历。</p>
+        <p class="hint">先排除不需要的病例并锁定队列，随后按实际纳入数量随机分组；需要6–9名医生。随机化不可重抽。</p>
         <form id="random-form" class="stack compact">
           <label>可选随机种子（留空自动生成）<input name="seed" autocomplete="off" placeholder="自动生成安全随机种子"></label>
           <button class="danger-outline">执行1:1:1随机化（不可撤销）</button>
@@ -108,5 +139,5 @@
   </section>
   <div id="notification" role="status" aria-live="polite"></div>
 </main>
-<script src="/static/rct.js?v=4" defer></script>
+<script src="/static/rct.js?v=5" defer></script>
 </body></html>
