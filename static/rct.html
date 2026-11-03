@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Web4Syn · Three-Arm Clinical Study</title>
-  <link rel="stylesheet" href="/static/rct.css?v=5">
+  <link rel="stylesheet" href="/static/rct.css?v=6">
 </head>
 <body>
 <header class="topbar">
@@ -102,6 +102,11 @@
           <button id="export-button">导出锁定数据CSV</button>
         </div>
         <p class="hint">解盲导出仅在数据库锁定后启用。平台不向医生展示组别与其他医生结果。</p>
+        <div id="test-reset-panel" class="test-reset-panel" hidden>
+          <h3>测试研究重置</h3>
+          <p class="hint">仅测试环境：重置前备份数据库，清除本轮任务、评阅结果和研究队列；保留医生账号、HDF5索引、排除记录及操作审计。已正式锁定的研究不可重置。</p>
+          <button type="button" id="test-reset-button" class="danger-outline">重置测试研究并重新选择病例</button>
+        </div>
       </article>
     </div>
   </section>
@@ -139,5 +144,5 @@
   </section>
   <div id="notification" role="status" aria-live="polite"></div>
 </main>
-<script src="/static/rct.js?v=5" defer></script>
+<script src="/static/rct.js?v=6" defer></script>
 </body></html>
