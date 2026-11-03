@@ -15,3 +15,11 @@
 .dataset-preview .phase-grid{grid-template-columns:repeat(4,minmax(0,1fr));background:#102031;border-radius:9px;padding:12px}
 .dataset-preview .phase{min-height:110px}
 @media(max-width:1000px){.dataset-preview .phase-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Doctor account management */
+.reader-table{min-width:720px}
+.reader-actions{display:flex;gap:6px;flex-wrap:wrap}
+.reader-actions button{font-size:12px;padding:6px 9px;white-space:nowrap}
+.reader-editor{border-top:1px solid #e0eaf2;margin-top:15px;padding-top:13px}
+.reader-editor h3{margin:0 0 12px;font-size:15px;color:#244b6b}
+.reader-editor .actions{margin-top:4px}
