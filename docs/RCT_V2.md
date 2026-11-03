@@ -45,9 +45,9 @@ When migrating from an existing container on port 8000, stop the old container a
 
 ## Doctor self-registration (admin approved)
 
-The login page now includes **医生注册账号**. A physician enters a username (3–80 ASCII letters/digits/underscore/dash), display name, grade and password (12+ characters), and confirms the password. Registration does **not** create an active reader session or assign patients.
+The login page now includes **医生注册账号**. A physician enters a username (3–80 ASCII letters/digits/underscore/dash), display name and password (12+ characters), and confirms the password. Registration does **not** create an active reader session or assign patients.
 
-- New registration is stored as a disabled `reader` with `registration_status=pending`; pending users cannot log in.
+- New registration is stored as a disabled `reader` with `registration_status=pending` and no preassigned seniority; pending users cannot log in. Admins can optionally specify grade later.
 - Admins can review pending registrations in **医生账户管理**: the status shows **待审核** and the action **审核通过**.
 - Approval enables the account and changes its registration status to `approved`. It is only allowed while the study is a draft with no assigned tasks; new registrations submitted during an active round wait for the next round.
 - The physician then logs in with the same password. Actual reading starts only if published tasks have been assigned.
