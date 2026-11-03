@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>评阅系统</title>
-  <link rel="stylesheet" href="/static/rct.css?v=8">
+  <link rel="stylesheet" href="/static/rct.css?v=9">
 </head>
 <body>
 <header class="topbar">
@@ -153,7 +153,11 @@
       <div class="reading-layout">
         <div class="image-panel">
           <div id="phase-grid" class="phase-grid"></div>
-          <div class="slice-counter" id="slice-position">0 / 0</div>
+          <div class="slice-controls-inline" aria-label="切片切换">
+            <button type="button" id="slice-prev" class="slice-nav" aria-label="上一张切片" title="上一张">&lt;</button>
+            <span class="slice-counter" id="slice-position">0 / 0</span>
+            <button type="button" id="slice-next" class="slice-nav" aria-label="下一张切片" title="下一张">&gt;</button>
+          </div>
         </div>
         <aside class="diagnosis card">
           <h2>临床诊断评价</h2>
@@ -178,5 +182,5 @@
   </section>
   <div id="notification" role="status" aria-live="polite"></div>
 </main>
-<script src="/static/rct.js?v=16" defer></script>
+<script src="/static/rct.js?v=17" defer></script>
 </body></html>
