@@ -104,7 +104,7 @@ function renderReaderManager(doctors,info){
   for(const doctor of doctors){
     const row=document.createElement("tr");
     for(const value of [doctor.username,doctor.display_name,
-      ({junior:"初级",intermediate:"中级",senior:"高级"})[doctor.level]||doctor.level,
+      ({junior:"初级",intermediate:"中级",senior:"高级"})[doctor.level]||"未设置",
       doctor.registration_status==="pending"?"待审核":(doctor.enabled?"启用":"停用"),doctor.assigned,doctor.completed]){
       const td=document.createElement("td");td.textContent=String(value??"—");row.append(td);
     }
@@ -115,7 +115,7 @@ function renderReaderManager(doctors,info){
       closeReaderEditors();readersUI.current=doctor;readersUI.mode="edit";
       const form=el("reader-edit-form");
       form.elements.display_name.value=doctor.display_name;
-      form.elements.level.value=doctor.level;
+      form.elements.level.value=doctor.level||"";
       // The grade is study protocol metadata and is fixed after assignments exist.
       form.elements.level.disabled=info.status!=="draft"||info.tasks>0;
       el("reader-edit-title").textContent="编辑医生 · "+doctor.username;
@@ -155,7 +155,7 @@ el("reader-edit-form").onsubmit=async e=>{
   try{
     await api("/admin/readers/"+doctor.id,{
       method:"PATCH",body:{display_name:form.elements.display_name.value.trim(),
-        level:form.elements.level.disabled?doctor.level:form.elements.level.value}
+        level:form.elements.level.disabled?doctor.level:(form.elements.level.value||null)}
     });
     closeReaderEditors();await refreshAdmin();message("医生信息已保存");
   }catch(err){message(err.message,true);}
