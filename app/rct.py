@@ -134,6 +134,27 @@ def initialize():
             server_elapsed_seconds INTEGER,
             submitted_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS rct_round_archives (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            end_reason TEXT NOT NULL,
+            ended_early INTEGER NOT NULL,
+            ended_at INTEGER NOT NULL,
+            actor_id INTEGER NOT NULL,
+            original_status TEXT NOT NULL,
+            target INTEGER NOT NULL,
+            assigned INTEGER NOT NULL,
+            completed INTEGER NOT NULL,
+            randomization_digest TEXT,
+            cohort_digest TEXT
+        );
+        CREATE TABLE IF NOT EXISTS rct_round_archive_tasks (
+            archive_id INTEGER NOT NULL REFERENCES rct_round_archives(id),
+            task_id INTEGER NOT NULL,
+            snapshot_json TEXT NOT NULL,
+            PRIMARY KEY(archive_id,task_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_rct_archives_time ON rct_round_archives(ended_at);
         CREATE TABLE IF NOT EXISTS rct_audit (
             id INTEGER PRIMARY KEY,
             actor_id INTEGER,
@@ -201,6 +222,12 @@ class StudyConfig(BaseModel):
 
 class RandomizationRequest(BaseModel):
     seed: str | None = Field(default=None, max_length=256)
+
+
+class EndRoundRequest(BaseModel):
+    confirm: Literal["END CURRENT ROUND"]
+    admin_password: str = Field(min_length=1)
+    reason: str = Field(default="管理员提前结束本轮任务", min_length=1, max_length=250)
 
 
 class StudyResetRequest(BaseModel):
@@ -298,6 +325,100 @@ def admin_study(user=Depends(admin)):
             "tasks": c.execute("SELECT COUNT(*) FROM rct_tasks").fetchone()[0],
         }
     return {**s, **counts, "test_reset_enabled": reset_enabled()}
+
+
+@router.post("/admin/end-round")
+def end_round(payload: EndRoundRequest, user=Depends(admin)):
+    """Archive every assignment and completed report, then free the active slot.
+
+    The archive and the new draft are committed atomically. Pending assignments
+    are marked incomplete in their archived snapshots; no diagnosis is invented.
+    """
+    with database(immediate=True) as c:
+        st=study(c)
+        if st["status"]!="published":
+            raise HTTPException(409,"Only published reading rounds may be ended early")
+        administrator=c.execute("SELECT password_hash FROM rct_users WHERE id=? AND role='admin'",
+                                (user["id"],)).fetchone()
+        if not administrator or not check_password(payload.admin_password,administrator["password_hash"]):
+            raise HTTPException(403,"Administrator password incorrect")
+        rows=c.execute("""SELECT t.id AS task_id,t.patient_id,t.reader_id,t.arm,t.public_code,
+                  t.sort_order,t.status,t.assigned_at,t.opened_at,t.submitted_at,
+                  p.patient_code,p.pack_filename,p.center,p.depth,
+                  u.username AS reader,u.display_name AS reader_name,u.level AS reader_level,
+                  r.submission_key,r.lesion_visible,r.diagnosis,r.malignancy_risk,
+                  r.client_active_seconds,r.server_elapsed_seconds,
+                  r.submitted_at AS result_submitted_at
+                  FROM rct_tasks t JOIN rct_patients p ON p.id=t.patient_id
+                  JOIN rct_users u ON u.id=t.reader_id
+                  LEFT JOIN rct_results r ON r.task_id=t.id ORDER BY t.id""").fetchall()
+        if not rows:
+            raise HTTPException(409,"No assignments to end")
+        assigned=len(rows)
+        completed=sum(row["result_submitted_at"] is not None for row in rows)
+        now=int(time.time())
+        snapshot=c.execute("SELECT frozen_digest FROM rct_scan_state WHERE id=1").fetchone()
+        result=c.execute("""INSERT INTO rct_round_archives
+            (name,end_reason,ended_early,ended_at,actor_id,original_status,
+             target,assigned,completed,randomization_digest,cohort_digest)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (st["name"],payload.reason.strip(),int(completed<assigned),now,user["id"],
+             st["status"],st["target"],assigned,completed,st["randomization_digest"],
+             snapshot["frozen_digest"] if snapshot else None))
+        archive_id=result.lastrowid
+        c.executemany("""INSERT INTO rct_round_archive_tasks(archive_id,task_id,snapshot_json)
+                         VALUES(?,?,?)""",
+            [(archive_id,row["task_id"],json.dumps(dict(row),ensure_ascii=False)) for row in rows])
+        # Delete only the active round: archived JSON and audit survive.
+        c.execute("DELETE FROM rct_results")
+        c.execute("DELETE FROM rct_tasks")
+        c.execute("DELETE FROM rct_patients")
+        c.execute("""UPDATE rct_scan_state SET frozen_at=NULL,
+                     frozen_count=NULL,frozen_digest=NULL WHERE id=1""")
+        c.execute("""UPDATE rct_studies SET status='draft',target=1600,
+                     randomization_digest=NULL,locked_at=NULL,created_at=? WHERE id=1""",(now,))
+        c.execute("""DELETE FROM rct_sessions WHERE user_id IN
+                     (SELECT id FROM rct_users WHERE role='reader')""")
+        audit(c,user["id"],"round_ended_and_archived",{
+            "archive_id":archive_id,"assigned":assigned,
+            "completed":completed,"incomplete":assigned-completed,
+            "reason":payload.reason.strip()})
+    return {"ok":True,"archive_id":archive_id,"assigned":assigned,
+            "completed":completed,"incomplete":assigned-completed}
+
+
+@router.get("/admin/round-archives")
+def round_archives(user=Depends(admin)):
+    with database() as c:
+        rows=c.execute("""SELECT id,name,end_reason,ended_early,ended_at,
+                   original_status,target,assigned,completed
+                   FROM rct_round_archives ORDER BY id DESC LIMIT 100""").fetchall()
+    return [dict(row) for row in rows]
+
+
+@router.get("/admin/round-archives/{archive_id}/export.csv")
+def export_round_archive(archive_id: int, user=Depends(admin)):
+    with database() as c:
+        archived=c.execute("SELECT id FROM rct_round_archives WHERE id=?",(archive_id,)).fetchone()
+        if not archived:
+            raise HTTPException(404,"Archived round not found")
+        rows=c.execute("""SELECT snapshot_json FROM rct_round_archive_tasks
+                          WHERE archive_id=? ORDER BY task_id""",(archive_id,)).fetchall()
+        audit(c,user["id"],"round_archive_export",{"archive_id":archive_id,"rows":len(rows)})
+    columns=["patient_code","center","public_code","arm","reader","reader_level",
+             "status","lesion_visible","diagnosis","malignancy_risk",
+             "client_active_seconds","server_elapsed_seconds",
+             "opened_at","result_submitted_at"]
+    output=io.StringIO()
+    writer=csv.writer(output);writer.writerow(columns)
+    for row in rows:
+        data=json.loads(row["snapshot_json"])
+        writer.writerow(["'"+str(data.get(k)) if isinstance(data.get(k),str)
+                         and data[k].startswith(("=","+","-","@")) else data.get(k)
+                         for k in columns])
+    return Response(output.getvalue(),media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition":
+                 f'attachment; filename="rct_round_{archive_id}_partial.csv"'})
 
 
 @router.post("/admin/reset-test-study")
