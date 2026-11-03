@@ -63,6 +63,20 @@ HDF5 root: `/dataset/RCTs/data_h5_v2` on host, mounted read-only at `/packs` in 
 Existing `rct.sqlite` is retained. Do **not** remove or reset the database to enable auto indexing.
 A study that already has randomized tasks remains fixed: you can scan/preview but cannot freeze a new cohort or exclude participants within the same study. Create a separate study database for a new experimental cohort if required.
 
+## Reset a test-study round (v2.2)
+
+Use this only in a **test installation**. The reset control is disabled by default.
+
+1. In your existing local `.env` set `WEB4SYN_RCT_ALLOW_TEST_RESET=1`, then rebuild and restart with `docker compose up -d --build --force-recreate`.
+2. Sign in as an administrator. If the research round is not formally locked, an extra **重置测试研究并重新选择病例** button appears under the admin progress area.
+3. Click the button, type the exact phrase `RESET TEST STUDY` and re-enter the current admin password.
+4. The application makes a private backup copy under `/app/data/rct_backups/` (host: `WEB4SYN_DATA_PATH/rct_backups/`) before deletion.
+5. It clears the test round's diagnoses, assignments and frozen cohort; restores status to `draft`, resets target to 1600 and signs out reader sessions. It **keeps** reader accounts, file index, manual include/exclude decisions and audit events.
+6. Revisit the file index, reselect cases, click **锁定最终纳入队列**, randomize and publish again.
+7. Disable reset by setting `WEB4SYN_RCT_ALLOW_TEST_RESET=0` after testing.
+
+A research study with status `locked` cannot be reset, even with the test flag enabled. Do not delete `rct.sqlite` to reset a real clinical study. Note that the SQLite backup includes potentially sensitive study metadata and results; restrict folder permissions and protect backup retention.
+
 ## Admin operating procedure
 
 1. Log in as admin and verify automatic directory scan completed; choose **Rescan** if needed.
