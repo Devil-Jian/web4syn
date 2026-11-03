@@ -176,6 +176,8 @@ async function refreshAdmin() {
   el("export-button").disabled=info.status!=="locked";
   visible("test-reset-panel", !!info.test_reset_enabled && info.status!=="locked");
   el("test-reset-button").disabled=info.tasks===0 && info.patients===0 && !datasetUI.frozen;
+  visible("end-round-button",info.status==="published");
+  await refreshRoundArchives();
 
 }
 el("admin-refresh").onclick=()=>refreshAdmin().catch(err=>message(err.message,true));
@@ -219,6 +221,61 @@ el("export-button").onclick=async()=>{
     const a=document.createElement("a");a.href=url;a.download="rct_results.csv";a.click();
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   }catch(err){message(err.message,true);}
+};
+
+async function refreshRoundArchives(){
+  const archives=await api("/admin/round-archives");
+  const wrapper=el("round-archives");
+  if(!archives.length){
+    wrapper.textContent="尚无已结束的历史轮次";
+    return;
+  }
+  const table=document.createElement("table");table.className="simple-table";
+  const header=document.createElement("tr");
+  ["历史轮次","结束时间","完成/分配","操作"].forEach(label=>{
+    const th=document.createElement("th");th.textContent=label;header.append(th);
+  });
+  const thead=document.createElement("thead");thead.append(header);table.append(thead);
+  const body=document.createElement("tbody");
+  for(const item of archives){
+    const tr=document.createElement("tr");
+    for(const value of ["第 "+item.id+" 轮",
+      new Date(item.ended_at*1000).toLocaleString(),
+      item.completed+" / "+item.assigned]){
+      const td=document.createElement("td");td.textContent=value;tr.append(td);
+    }
+    const actions=document.createElement("td");
+    const button=document.createElement("button");
+    button.type="button";button.className="quiet";button.textContent="下载本轮CSV";
+    button.onclick=async()=>{
+      try{
+        const blob=await api("/admin/round-archives/"+item.id+"/export.csv",{binary:true});
+        const url=URL.createObjectURL(blob),a=document.createElement("a");
+        a.href=url;a.download="rct_round_"+item.id+"_partial.csv";a.click();
+        setTimeout(()=>URL.revokeObjectURL(url),1500);
+      }catch(err){message(err.message,true);}
+    };
+    actions.append(button);tr.append(actions);body.append(tr);
+  }
+  table.append(body);wrapper.replaceChildren(table);
+}
+el("end-round-button").onclick=async()=>{
+  if(!confirm("确认强制结束当前轮次？所有未完成阅片将立即停止；已完成诊断和全部任务分配会永久归档，随后可以重新选择病例并发布下一轮。"))return;
+  const password=prompt("请输入管理员密码，确认结束并归档当前轮次：","");
+  if(!password)return;
+  const button=el("end-round-button");button.disabled=true;
+  try{
+    const result=await api("/admin/end-round",{method:"POST",body:{
+      confirm:"END CURRENT ROUND",admin_password:password,
+      reason:"管理员手动提前结束本轮阅片"
+    }});
+    datasetUI.page=1;datasetUI.selected.clear();datasetUI.preview=null;
+    visible("dataset-preview",false);
+    el("launch-result").textContent="";
+    await refreshAdmin();
+    message("第 "+result.archive_id+" 轮已归档：完成 "+result.completed+" 例、未完成 "+result.incomplete+" 例。可以开始发布下一轮。");
+  }catch(err){message(err.message,true);}
+  finally{button.disabled=false;}
 };
 
 el("test-reset-button").onclick=async()=>{
