@@ -10,7 +10,7 @@ Source branch: feat/three-arm-rw-rct-v2 (based on feat/reader-study-v1).
 - Exactly one arm, one doctor, and one valid submitted report per patient (1600 reports, not 4800).
 - 6–9 readers, with experience grades junior/intermediate/senior; balanced reader and arm counts.
 - Admin: configure target, create readers, import anonymous HDF5 cases, randomize exactly once, publish, monitor progress, lock, export.
-- Doctor: independent account, only own tasks, synchronized on-demand 2D CT slice viewer with HU window [-160,240], three-part diagnosis form, automatic next case after server-confirmed submit.
+- Doctor: independent account, only own tasks, synchronized on-demand 2D CT slice viewer with HU window [-160,240], four-part diagnosis form, automatic next case after server-confirmed submit.
 - Server-side group/reader authorization for every image slice, immutable results, idempotent repeated submission requests, audit log.
 - Isolated RCT database under WEB4SYN_DATA/rct.sqlite. Original preview data under WEB4SYN_DATA/web4syn.sqlite is untouched.
 
@@ -131,9 +131,12 @@ Existing legacy APIs remain for backwards compatibility, but the admin UI presen
 
 ## Diagnostic form validation
 
-- lesion_visible = yes: choose exactly one diagnosis and malignancy risk (1..5).
-- lesion_visible = no: diagnosis disabled, malignancy risk optional.
-- lesion_visible = unsure: diagnosis optional, malignancy risk disabled.
+- `lesion_visible = yes`: explicitly choose an independent `lesion_nature` (`benign`, `malignant`, or `unsure`), the most likely diagnosis type, and a malignancy risk score (1–5). These fields cannot be inferred from one another.
+- `lesion_visible = no`: nature, diagnosis and risk are all disabled and saved as NULL.
+- `lesion_visible = unsure`: existence is uncertain; nature, diagnosis and risk are disabled and saved as NULL.
+- Risk scale is ordinal: 1 extremely unlikely malignant; 2 unlikely; 3 indeterminate; 4 likely; 5 extremely likely. It is **not** pathology grade or tumor staging.
+- Specific subtype `OTHER` should be interpreted alongside the **independently recorded** nature. Findings such as cirrhosis or biliary stones are not necessarily focal hepatic lesions; protocol inclusion and classification must be specified prospectively.
+- `rct_results.lesion_nature` is added to existing SQLite databases without losing legacy submissions. Prior diagnoses are left NULL, not guessed from risk or subtype. Current locked CSV exports and early-end archives include the field.
 - Diseases: HCC, ICC, MET, FNH, HEM, CYST, OTHER.
 
 No other doctor opinions, ground-truth labels, or AI-vs-real source labels are sent to physician UI. For a true clinical intervention, clinical staff must not be misled about the nature of AI-generated scans, and a medically appropriate rescue pathway is required.
