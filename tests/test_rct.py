@@ -270,3 +270,57 @@ def test_six_character_doctor_password_is_accepted(client):
     assert rejected.status_code==422
     assert client.post("/api/rct/auth/login",json={
         "username":"SixCreated","password":"xyz789"}).status_code==200
+
+
+def test_admin_can_create_and_delete_unassigned_reader_accounts(client):
+    administrator=auth(client,"admin","change-this-in-production-12345")
+    created=client.post("/api/rct/admin/readers",headers=administrator,json={
+        "username":"ExtraReader","display_name":"Extra Doctor",
+        "level":"junior","password":"123456"})
+    assert created.status_code==200,created.text
+    login_token=auth(client,"ExtraReader","123456")
+    record=next(x for x in client.get("/api/rct/admin/readers",headers=administrator).json()
+                if x["username"]=="ExtraReader")
+    assert record["assigned"]==0
+    reader_id=record["id"]
+    # Reader cannot remove anyone; admin cannot be deleted through the reader route.
+    assert client.delete(f"/api/rct/admin/readers/{reader_id}",headers=login_token).status_code==403
+    with rct.database() as c:
+        admin_id=c.execute("SELECT id FROM rct_users WHERE role='admin'").fetchone()["id"]
+    assert client.delete(f"/api/rct/admin/readers/{admin_id}",headers=administrator).status_code==404
+    deleted=client.delete(f"/api/rct/admin/readers/{reader_id}",headers=administrator)
+    assert deleted.status_code==200,deleted.text
+    assert deleted.json()["username"]=="ExtraReader"
+    assert client.get("/api/rct/me",headers=login_token).status_code==401
+    assert client.delete(f"/api/rct/admin/readers/{reader_id}",headers=administrator).status_code==404
+    with rct.database() as c:
+        assert c.execute("SELECT COUNT(*) FROM rct_audit WHERE action='reader_deleted'").fetchone()[0]==1
+    # Creating users while another round is published is fine; they receive no old assignments.
+    with rct.database() as c:
+        c.execute("UPDATE rct_studies SET status='published' WHERE id=1")
+    added=client.post("/api/rct/admin/readers",headers=administrator,json={
+        "username":"NextReader","display_name":"Next Doctor",
+        "level":"senior","password":"654321"})
+    assert added.status_code==200,added.text
+    user=next(x for x in client.get("/api/rct/admin/readers",headers=administrator).json()
+              if x["username"]=="NextReader")
+    assert user["assigned"]==0
+    assert client.delete(f"/api/rct/admin/readers/{user['id']}",
+                         headers=administrator).status_code==200
+
+
+def test_admin_cannot_delete_reader_with_active_assignment(client):
+    administrator=auth(client,"admin","change-this-in-production-12345")
+    populate(client,administrator,count=6)
+    assert client.post("/api/rct/admin/randomize",
+                       headers=administrator,json={"seed":"reader-delete-protection"}).status_code==200
+    doctors=client.get("/api/rct/admin/readers",headers=administrator).json()
+    assigned=next(x for x in doctors if x["assigned"]>0)
+    rejected=client.delete(f"/api/rct/admin/readers/{assigned['id']}",
+                           headers=administrator)
+    assert rejected.status_code==409,rejected.text
+    assert client.post("/api/rct/auth/login",json={
+        "username":assigned["username"],"password":"reader-password-12345"}).status_code==200
+    with rct.database() as c:
+        assert c.execute("SELECT COUNT(*) FROM rct_tasks").fetchone()[0]==6
+        assert c.execute("SELECT COUNT(*) FROM rct_audit WHERE action='reader_deleted'").fetchone()[0]==0
