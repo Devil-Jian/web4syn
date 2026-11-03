@@ -43,6 +43,18 @@ Bootstrap login: user admin, password is WEB4SYN_RCT_ADMIN_PASSWORD, **minimum 1
 
 When migrating from an existing container on port 8000, stop the old container and back up /var/lib/web4syn first. V2 defaults disable the anonymous V1 demo task API; never set WEB4SYN_ENABLE_LEGACY_DEMO=1 on an externally accessible service.
 
+## Doctor account management
+
+Admin console section **02 · 医生账户管理** supports:
+- Create doctor accounts (username, alias, seniority, initial password), before task randomization.
+- List **all** reader accounts, including disabled accounts, with status and assigned/completed task counts.
+- Edit display name at any time; doctor seniority may be changed only before randomization because it affects study design.
+- Enable or disable accounts before any assignment; accounts with tasks cannot be disabled to prevent stranded cases. Disabled accounts cannot log in.
+- Reset a doctor password with a new password (minimum 12 characters) and the **current administrator password**. This invalidates all existing sessions of that reader without altering tasks or results.
+- Account actions are recorded in the study audit log. No destructive delete operation is exposed.
+
+For replacing a reader with assigned tasks, do not disable the account or silently reassign cases. In a test study use the authorized test-reset workflow; for a clinical study an approved protocol-defined reassignment procedure is required.
+
 ## Automated patient dataset management (v2.2)
 
 HDF5 root: `/dataset/RCTs/data_h5_v2` on host, mounted read-only at `/packs` in the container. Set `WEB4SYN_PACKS_PATH` in your existing local `.env` file (changes to `.env.example` do not update `.env`).
