@@ -122,3 +122,68 @@ def test_allocation_balances_workload():
     assert dict(collections.Counter(t[2] for t in plan)) == expected
     workloads = collections.Counter(t[1] for t in plan)
     assert max(workloads.values()) - min(workloads.values()) <= 3
+
+
+def test_reader_account_management_before_and_after_randomization(client):
+    administrator=auth(client,"admin","change-this-in-production-12345")
+    populate(client,administrator,count=6)
+    readers=client.get("/api/rct/admin/readers",headers=administrator).json()
+    assert len(readers)==6
+    assert all(r["enabled"]==1 for r in readers)
+    first=readers[0]
+    second=readers[1]
+    first_id=first["id"]
+    second_id=second["id"]
+    # Before randomization profile, grade and status can be edited.
+    updated=client.patch(f"/api/rct/admin/readers/{first_id}",headers=administrator,json={
+        "display_name":"Doctor A","level":"senior"})
+    assert updated.status_code==200,updated.text
+    turned_off=client.patch(f"/api/rct/admin/readers/{first_id}/status",
+                             headers=administrator,json={"enabled":False})
+    assert turned_off.status_code==200
+    assert client.post("/api/rct/auth/login",json={
+        "username":first["username"],"password":"reader-password-12345"}).status_code==401
+    assert client.patch(f"/api/rct/admin/readers/{first_id}/status",
+                        headers=administrator,json={"enabled":True}).status_code==200
+    # Password change needs the administrator's password, invalidates existing tokens.
+    reader_session=auth(client,first["username"],"reader-password-12345")
+    denied=client.post(f"/api/rct/admin/readers/{first_id}/password",
+        headers=administrator,json={"password":"new-reader-password-12345",
+                                    "admin_password":"incorrect-admin"})
+    assert denied.status_code==403
+    assert client.get("/api/rct/me",headers=reader_session).status_code==200
+    rotated=client.post(f"/api/rct/admin/readers/{first_id}/password",headers=administrator,
+        json={"password":"new-reader-password-12345",
+              "admin_password":"change-this-in-production-12345"})
+    assert rotated.status_code==200
+    assert client.get("/api/rct/me",headers=reader_session).status_code==401
+    assert client.post("/api/rct/auth/login",json={
+        "username":first["username"],"password":"reader-password-12345"}).status_code==401
+    assert client.post("/api/rct/auth/login",json={
+        "username":first["username"],"password":"new-reader-password-12345"}).status_code==200
+    # Doctors have no access to account management.
+    doctor_auth=auth(client,first["username"],"new-reader-password-12345")
+    assert client.get("/api/rct/admin/readers",headers=doctor_auth).status_code==403
+    assert client.patch(f"/api/rct/admin/readers/{second_id}",headers=doctor_auth,json={
+        "display_name":"Invalid","level":"junior"}).status_code==403
+    assert client.post(f"/api/rct/admin/readers/{first_id}/password",headers=doctor_auth,
+        json={"password":"third-reader-password-12345",
+              "admin_password":"change-this-in-production-12345"}).status_code==403
+    assert client.patch("/api/rct/admin/readers/99999/status",headers=administrator,
+                        json={"enabled":False}).status_code==404
+    # Once assigned, disabling accounts and changing grades must not orphan cases.
+    randomized=client.post("/api/rct/admin/randomize",headers=administrator,json={"seed":"accounts-test"})
+    assert randomized.status_code==200,randomized.text
+    assigned=client.get("/api/rct/admin/readers",headers=administrator).json()
+    with_tasks=next(x for x in assigned if x["assigned"]>0)
+    assert client.patch(f"/api/rct/admin/readers/{with_tasks['id']}/status",
+                        headers=administrator,json={"enabled":False}).status_code==409
+    alternative="junior" if with_tasks["level"]!="junior" else "senior"
+    assert client.patch(f"/api/rct/admin/readers/{with_tasks['id']}",
+                        headers=administrator,json={
+                            "display_name":"Still assigned","level":alternative}).status_code==409
+    # Display name corrections do not alter reader assignment or study grouping.
+    assert client.patch(f"/api/rct/admin/readers/{with_tasks['id']}",
+                        headers=administrator,json={
+                            "display_name":"Corrected alias","level":with_tasks["level"]}).status_code==200
+    assert client.get("/api/rct/admin/study",headers=administrator).json()["tasks"]==6
