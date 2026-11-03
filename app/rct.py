@@ -283,7 +283,7 @@ def admin_study(user=Depends(admin)):
             "readers": c.execute("SELECT COUNT(*) FROM rct_users WHERE role='reader' AND enabled=1").fetchone()[0],
             "tasks": c.execute("SELECT COUNT(*) FROM rct_tasks").fetchone()[0],
         }
-    return {**s, **counts}
+    return {**s, **counts, "test_reset_enabled": reset_enabled()}
 
 
 @router.post("/admin/reset-test-study")
