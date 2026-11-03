@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Web4Syn · Three-Arm Clinical Study</title>
-  <link rel="stylesheet" href="/static/rct.css?v=6">
+  <link rel="stylesheet" href="/static/rct.css?v=7">
 </head>
 <body>
 <header class="topbar">
@@ -32,7 +32,7 @@
         <form id="study-form" class="inline-form"><label>目标病例数 <input type="number" name="target" min="3" max="10000" value="1600" required></label><button>保存配置</button></form>
       </article>
       <article class="card">
-        <h2>02 · 新增医生</h2>
+        <h2>02 · 医生账户管理</h2>
         <form id="reader-form" class="stack compact">
           <label>登录账号 <input name="username" autocomplete="off" pattern="[A-Za-z0-9_-]+" required></label>
           <label>姓名/代号 <input name="display_name" required></label>
@@ -41,6 +41,23 @@
           <button>创建医生账号</button>
         </form>
         <div class="data-list" id="reader-list"></div>
+        <div id="reader-edit-panel" class="reader-editor" hidden>
+          <h3 id="reader-edit-title">编辑医生</h3>
+          <form id="reader-edit-form" class="stack compact">
+            <label>显示姓名/代号 <input name="display_name" maxlength="80" required></label>
+            <label>医生资历 <select name="level"><option value="junior">初级</option><option value="intermediate">中级</option><option value="senior">高级</option></select></label>
+            <div class="actions"><button type="submit">保存资料</button><button class="quiet" type="button" id="reader-edit-cancel">取消</button></div>
+          </form>
+        </div>
+        <div id="reader-password-panel" class="reader-editor" hidden>
+          <h3 id="reader-password-title">重置医生密码</h3>
+          <form id="reader-password-form" class="stack compact" autocomplete="off">
+            <label>新密码（至少12位） <input type="password" name="password" minlength="12" maxlength="256" autocomplete="new-password" required></label>
+            <label>当前管理员密码 <input type="password" name="admin_password" autocomplete="current-password" required></label>
+            <div class="actions"><button type="submit">确认重置密码</button><button class="quiet" type="button" id="reader-password-cancel">取消</button></div>
+          </form>
+          <p class="hint">重置会立即使该医生已登录的会话失效，已有阅片任务和结果不受影响。</p>
+        </div>
       </article>
       <article class="card wide">
         <h2>03 · 患者数据集管理</h2>
@@ -144,5 +161,5 @@
   </section>
   <div id="notification" role="status" aria-live="polite"></div>
 </main>
-<script src="/static/rct.js?v=6" defer></script>
+<script src="/static/rct.js?v=7" defer></script>
 </body></html>
