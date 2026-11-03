@@ -5,3 +5,13 @@
 .phase img{pointer-events:none;transform-origin:center center;will-change:transform}
 .phase-grid.focus .phase.expanded{cursor:grab}
 .slice-counter{text-align:center;color:#c2d1df;font-size:12px;font-variant-numeric:tabular-nums;padding:9px 0 1px}
+
+/* Dataset manager: compact, server-paginated file catalog */
+.dataset-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0}
+.dataset-toolbar input,.dataset-toolbar select{border:1px solid #d1dce7;border-radius:7px;padding:10px;background:#fff}
+.dataset-toolbar input{min-width:260px;flex:1}
+.dataset-counts{font-size:13px;color:#3c6480;background:#f4f8fb;padding:12px 14px;border-radius:8px;margin-top:12px}
+.dataset-preview{border-top:1px solid #e5edf3;padding-top:14px;margin-top:20px}
+.dataset-preview .phase-grid{grid-template-columns:repeat(4,minmax(0,1fr));background:#102031;border-radius:9px;padding:12px}
+.dataset-preview .phase{min-height:110px}
+@media(max-width:1000px){.dataset-preview .phase-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
