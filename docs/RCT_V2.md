@@ -54,12 +54,12 @@ Duplicate usernames and malformed submissions remain rejected. Auto-registration
 ## Doctor account management
 
 Admin console section **02 · 医生账户管理** supports:
-- Create doctor accounts (username, alias, seniority, initial password), before task randomization.
+- Add doctor accounts directly (username, alias, seniority, initial password) even while another round is published. New accounts do not inherit existing assignments.
 - List **all** reader accounts, including disabled accounts, with status and assigned/completed task counts.
 - Edit display name at any time; doctor seniority may be changed only before randomization because it affects study design.
 - Enable or disable accounts before any assignment; accounts with tasks cannot be disabled to prevent stranded cases. Disabled accounts cannot log in.
 - Reset a doctor password with a new password (minimum 6 characters) and the **current administrator password**. This invalidates all existing sessions of that reader without altering tasks or results.
-- Account actions are recorded in the study audit log. No destructive delete operation is exposed.
+- Permanently delete unassigned doctor accounts directly in the same list, with a username confirmation. Accounts with active-round assignments cannot be deleted; finish/archive the round first. Deletion revokes sessions and creates an audit event. Admin accounts cannot be deleted through this route.
 
 For replacing a reader with assigned tasks, do not disable the account or silently reassign cases. In a test study use the authorized test-reset workflow; for a clinical study an approved protocol-defined reassignment procedure is required.
 
