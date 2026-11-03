@@ -12,9 +12,7 @@
 </header>
 <main>
   <section class="login card" id="login-section">
-    <div class="eyebrow">SECURE STUDY ACCESS</div>
     <h1>临床阅片研究平台</h1>
-    <p>医生独立阅片 · 单患者单次诊断 · 三臂随机分配</p>
     <form id="login-form" class="stack">
       <label>账号 <input name="username" autocomplete="username" required></label>
       <label>密码 <input name="password" type="password" autocomplete="current-password" required></label>
@@ -23,13 +21,12 @@
     <button type="button" class="quiet auth-link" id="show-register">医生注册账号</button>
     <div id="registration-panel" hidden>
       <h2>医生注册</h2>
-      <p class="hint">提交后由研究管理员审核。审核通过后可使用注册账号登录并参加已分配的阅片任务。</p>
       <form id="registration-form" class="stack" autocomplete="off">
         <label>登录账号（至少3位字母、数字或下划线）<input name="username" required minlength="3" maxlength="80" pattern="[A-Za-z0-9_-]+" autocomplete="username"></label>
         <label>姓名或阅片代号 <input name="display_name" maxlength="80" required></label>
         <label>设置密码（至少6位）<input name="password" type="password" minlength="6" maxlength="256" autocomplete="new-password" required></label>
         <label>确认密码 <input name="confirm_password" type="password" minlength="6" maxlength="256" autocomplete="new-password" required></label>
-        <button type="submit">提交注册申请</button>
+        <button type="submit">注册</button>
         <button type="button" id="cancel-register" class="quiet">返回登录</button>
       </form>
       <p id="registration-result" class="hint" role="status"></p>
@@ -175,5 +172,5 @@
   </section>
   <div id="notification" role="status" aria-live="polite"></div>
 </main>
-<script src="/static/rct.js?v=13" defer></script>
+<script src="/static/rct.js?v=14" defer></script>
 </body></html>
