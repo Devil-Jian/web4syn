@@ -61,7 +61,11 @@ async function enter() {
   visible("login-section",false); visible("logout",true);
   el("identity").textContent=who.display_name+" · "+(who.role==="admin"?"管理员":"评阅医生");
   visible("admin-section",who.role==="admin");visible("reader-section",who.role==="reader");
-  if(who.role==="admin") await refreshAdmin(); else await refreshReader();
+  if(who.role==="admin") await refreshAdmin();
+  else {
+    const queue=await refreshReader();
+    if(queue.remaining>0)await startNext();
+  }
 }
 el("login-form").onsubmit=async event=>{
   event.preventDefault();
@@ -467,6 +471,7 @@ function updateReadingTimer(){
     :[minutes,seconds%60].map(n=>String(n).padStart(2,"0")).join(":");
   el("reading-elapsed").textContent=time;
 }
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)updateReadingTimer();});
 function startReadingTimer(){
   stopReadingTimer();
   updateReadingTimer();
@@ -479,6 +484,7 @@ async function refreshReader(){
   visible("reader-idle",empty||!study.task);
   visible("continue-button",!empty);
   el("reader-idle-message").textContent=empty?"已完成全部评阅任务。":"";
+  return data;
 }
 // The viewer swaps complete, decoded phase groups in a single animation frame.
 // Cache requests (and decoded images) so a rapid wheel gesture does not refetch.
@@ -508,6 +514,8 @@ async function startNext(){
     discardImages();
     const task=await api("/tasks/"+response.task.id);
     study.task=task;study.z=Math.floor(task.depth/2);study.lo=-160;study.hi=240;
+    study.startTime=Date.now();
+    startReadingTimer();
     el("case-number").textContent=task.public_code;
     el("diagnosis-form").reset();syncDiagnosisFields();
     visible("reading",true);visible("reader-idle",false);
@@ -546,8 +554,6 @@ async function startNext(){
       pane.addEventListener("lostpointercapture",endDrag);
       grid.append(pane);
     });
-    study.startTime=Date.now();
-    startReadingTimer();
     await renderImages();
   }catch(err){message(err.message,true);}
 }
@@ -611,6 +617,8 @@ async function renderImages(){
   const epoch=study.generation, request=++viewer.sliceEpoch;
   const task=study.task,z=study.z;
   el("slice-position").textContent=(z+1)+" / "+task.depth;
+  el("slice-prev").disabled=z===0;
+  el("slice-next").disabled=z>=task.depth-1;
   const phaseImages=await Promise.allSettled(task.phases.map(async phase=>({
     phase,item:await cachedSlice(task,phase,z,epoch)
   })));
@@ -652,6 +660,8 @@ function moveSlice(delta){
   study.z=next;
   renderImages();
 }
+el("slice-prev").onclick=()=>moveSlice(-1);
+el("slice-next").onclick=()=>moveSlice(1);
 function transformFor(phase){
   if(!study.transforms.has(phase))study.transforms.set(phase,{zoom:1,x:0,y:0});
   return study.transforms.get(phase);
