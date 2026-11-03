@@ -294,10 +294,14 @@ def freeze_cohort(user=Depends(admin)):
                          if existing_names[key] != selected_names[key]]
             if conflicts:
                 raise HTTPException(409, "Existing patient identifiers reference different packs")
-        # If historical draft patients exist, only update when all are still selected.
-        # This avoids losing previously imported records without an explicit migration.
-        if existing and not set(x["patient_code"] for x in existing).issubset(set(codes)):
-            raise HTTPException(409, "Existing draft patients are excluded; explicit migration required")
+        # Draft-only migration: selection is explicit and old assignments do not exist.
+        # Retain original IDs for included patients; excluded drafts can be removed.
+        if existing:
+            removed = sorted(set(existing_names) - set(codes))
+            for code in removed:
+                c.execute("DELETE FROM rct_patients WHERE patient_code=?", (code,))
+            if removed:
+                audit(c,user["id"],"draft_patients_excluded_on_freeze",{"count":len(removed)})
         now = int(time.time())
         for row in selected:
             c.execute("""INSERT OR IGNORE INTO rct_patients
