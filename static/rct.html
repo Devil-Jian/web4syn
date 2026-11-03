@@ -27,7 +27,6 @@
       <form id="registration-form" class="stack" autocomplete="off">
         <label>登录账号（至少3位字母、数字或下划线）<input name="username" required minlength="3" maxlength="80" pattern="[A-Za-z0-9_-]+" autocomplete="username"></label>
         <label>姓名或阅片代号 <input name="display_name" maxlength="80" required></label>
-        <label>医生资历 <select name="level"><option value="junior">初级</option><option value="intermediate">中级</option><option value="senior">高级</option></select></label>
         <label>设置密码（至少12位）<input name="password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label>
         <label>确认密码 <input name="confirm_password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label>
         <button type="submit">提交注册申请</button>
@@ -176,5 +175,5 @@
   </section>
   <div id="notification" role="status" aria-live="polite"></div>
 </main>
-<script src="/static/rct.js?v=11" defer></script>
+<script src="/static/rct.js?v=12" defer></script>
 </body></html>
