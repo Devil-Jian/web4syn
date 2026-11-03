@@ -45,7 +45,7 @@ el("registration-form").onsubmit=async event=>{
   try{
     await api("/auth/register",{method:"POST",body:data});
     form.reset();
-    el("registration-result").textContent="注册已提交，请联系研究管理员审核启用。审核通过后返回登录。";
+    el("registration-result").textContent="注册成功，可以直接登录。";
   }catch(err){el("registration-result").textContent=err.message;}
   finally{submit.disabled=false;}
 };
