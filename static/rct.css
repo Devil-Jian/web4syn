@@ -45,3 +45,14 @@
 .diseases .disease-option small{display:block;margin:0;text-align:left;font-size:12px;font-weight:600;line-height:1.4;color:#7791a6}
 .disease-example{display:block;margin-top:3px;color:#7890a5;font-size:11px;font-weight:400}
 @media(max-width:650px){#reader-idle{align-items:stretch;flex-direction:column}.reading-timer{margin-left:0}}
+
+/* Compact slice counter navigation: previous < count > next. */
+.slice-controls-inline{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:7px}
+.slice-controls-inline .slice-counter{padding:0;min-width:62px}
+.slice-nav{appearance:none;background:transparent;border:1px solid #405366;border-radius:6px;color:#d7e3ef;min-width:30px;height:28px;padding:2px 7px;font-size:17px;line-height:1;cursor:pointer}
+.slice-nav:hover:not(:disabled){background:#23384d;border-color:#809bae}
+.slice-nav:disabled{opacity:.3;cursor:default}
+/* Keep all five malignancy choices in one row, including on narrow screens. */
+#risk-field .risks{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;flex-wrap:nowrap}
+#risk-field .risks label{min-width:0;justify-content:center;padding:9px 3px;white-space:nowrap}
+@media(max-width:650px){#risk-field .risks{grid-template-columns:repeat(5,minmax(0,1fr))}}
