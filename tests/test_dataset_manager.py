@@ -236,7 +236,7 @@ def test_force_end_partial_round_and_publish_second_round(setup):
     assert client.get(f"/api/rct/tasks/{task['id']}",headers=doctor_auth).status_code==200
     submit=client.post(f"/api/rct/tasks/{task['id']}/submit",headers=doctor_auth,json={
         "submission_key":"partial-round-submission-1234",
-        "lesion_visible":"yes","diagnosis":"HCC","malignancy_risk":4})
+        "lesion_visible":"yes","lesion_nature":"malignant","diagnosis":"HCC","malignancy_risk":4})
     assert submit.status_code==200,submit.text
     req={"confirm":"END CURRENT ROUND","admin_password":"test-admin-password-1234",
          "reason":"First test complete"}
@@ -261,6 +261,8 @@ def test_force_end_partial_round_and_publish_second_round(setup):
     assert exported.status_code==200
     assert len(exported.text.strip().splitlines())==9
     assert "HCC" in exported.text and "submitted" in exported.text
+    assert "lesion_nature" in exported.text.splitlines()[0]
+    assert "malignant" in exported.text
     assert "assigned" in exported.text or "opened" in exported.text
     assert client.post("/api/rct/admin/end-round",headers=administrator,json=req).status_code==409
     # Second round can use the existing index and readers without resetting the database.
