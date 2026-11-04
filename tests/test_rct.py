@@ -353,11 +353,9 @@ def test_lesion_nature_required_and_independent_for_visible_lesion(client):
                        json={**base,"lesion_nature":"invalid"}).status_code==422
     assert client.post(f"/api/rct/tasks/{task_id}/submit",headers=doctor,
                        json={**base,"lesion_nature":"benign","malignancy_risk":None}).status_code==422
-    for presence in ["no","unsure"]:
+    for nature in ["benign",None]:
         assert client.post(f"/api/rct/tasks/{task_id}/submit",headers=doctor,
-            json={**base,"lesion_visible":presence,"lesion_nature":"benign"}).status_code==422
-        assert client.post(f"/api/rct/tasks/{task_id}/submit",headers=doctor,
-            json={**base,"lesion_visible":presence,"lesion_nature":None}).status_code==422
+            json={**base,"lesion_visible":"no","lesion_nature":nature}).status_code==422
     # Nature and 1-5 risk are saved independently, without auto-inference.
     saved=client.post(f"/api/rct/tasks/{task_id}/submit",headers=doctor,
        json={**base,"lesion_nature":"unsure"})
@@ -426,3 +424,39 @@ def test_case_batch_has_authorized_phases_bounded_range_and_index(client):
         task_row=c.execute("SELECT arm FROM rct_tasks WHERE id=?",(task_id,)).fetchone()
     if task_row["arm"]=="NCCT":
         assert {row["phase"] for row in manifest["images"]}=={"NCCT"}
+
+
+def test_uncertain_lesion_presence_allows_optional_followup_judgments(client):
+    administrator=auth(client,"admin","change-this-in-production-12345")
+    populate(client,administrator,count=6)
+    assert client.post("/api/rct/admin/randomize",headers=administrator,
+                       json={"seed":"uncertain-branch"}).status_code==200
+    assert client.post("/api/rct/admin/publish",headers=administrator).status_code==200
+    doctor=auth(client,"R01","reader-password-12345")
+    task=client.get("/api/rct/tasks/next",headers=doctor).json()["task"]
+    assert task is not None
+    assert client.get(f"/api/rct/tasks/{task['id']}",headers=doctor).status_code==200
+    result=client.post(f"/api/rct/tasks/{task['id']}/submit",headers=doctor,json={
+        "submission_key":secrets.token_hex(20),"lesion_visible":"unsure",
+        "lesion_nature":"unsure","diagnosis":"UNSURE","malignancy_risk":3})
+    assert result.status_code==200,result.text
+    with rct.database() as db:
+        record=db.execute("SELECT lesion_visible,lesion_nature,diagnosis,malignancy_risk "
+                          "FROM rct_results WHERE task_id=?",(task["id"],)).fetchone()
+    assert dict(record)=={"lesion_visible":"unsure","lesion_nature":"unsure",
+                          "diagnosis":"UNSURE","malignancy_risk":3}
+
+
+def test_uncertain_lesion_presence_can_submit_without_followup_judgments(client):
+    administrator=auth(client,"admin","change-this-in-production-12345")
+    populate(client,administrator,count=6)
+    assert client.post("/api/rct/admin/randomize",headers=administrator,
+                       json={"seed":"uncertain-empty-branch"}).status_code==200
+    assert client.post("/api/rct/admin/publish",headers=administrator).status_code==200
+    doctor=auth(client,"R01","reader-password-12345")
+    task=client.get("/api/rct/tasks/next",headers=doctor).json()["task"]
+    assert task is not None
+    assert client.get(f"/api/rct/tasks/{task['id']}",headers=doctor).status_code==200
+    result=client.post(f"/api/rct/tasks/{task['id']}/submit",headers=doctor,json={
+        "submission_key":secrets.token_hex(20),"lesion_visible":"unsure"})
+    assert result.status_code==200,result.text
