@@ -131,13 +131,13 @@ Existing legacy APIs remain for backwards compatibility, but the admin UI presen
 
 ## Diagnostic form validation
 
-- `lesion_visible = yes`: explicitly choose an independent `lesion_nature` (`benign`, `malignant`, or `unsure`), the most likely diagnosis type, and a malignancy risk score (1–5). These fields cannot be inferred from one another.
-- `lesion_visible = no`: nature, diagnosis and risk are all disabled and saved as NULL.
-- `lesion_visible = unsure`: existence is uncertain; nature, diagnosis and risk remain enabled but optional. Selected values are saved as entered; unselected fields stay NULL.
-- Risk scale is ordinal: 1 extremely unlikely malignant; 2 unlikely; 3 indeterminate; 4 likely; 5 extremely likely. It is **not** pathology grade or tumor staging.
+- `lesion_visible = yes`: explicitly choose an independent `lesion_nature` (`benign`, `malignant`, or `unsure`), the most likely diagnosis type, without an additional malignancy risk score. Nature and diagnosis are recorded independently.
+- `lesion_visible = no`: nature and diagnosis are disabled and saved as NULL.
+- `lesion_visible = unsure`: existence is uncertain; nature and diagnosis remain enabled but optional. Selected values are saved as entered; unselected fields stay NULL.
+- The malignancy risk question (including 1–5 choices) has been removed. Legacy `malignancy_risk` values remain stored and exportable, while new UI submissions leave this field NULL.
 - Specific subtype `OTHER` should be interpreted alongside the **independently recorded** nature. Findings such as cirrhosis or biliary stones are not necessarily focal hepatic lesions; protocol inclusion and classification must be specified prospectively.
 - `rct_results.lesion_nature` is added to existing SQLite databases without losing legacy submissions. Prior diagnoses are left NULL, not guessed from risk or subtype. Current locked CSV exports and early-end archives include the field.
-- Diseases: HCC, ICC, MET, FNH, HEM, CYST, OTHER, UNSURE (uncertain lesion subtype). The nature choices appear as malignant, benign, unsure; risk 1–5 remains available without a visible section heading.
+- Diseases: HCC, ICC, MET, FNH, HEM, CYST, OTHER, UNSURE (uncertain lesion subtype). The nature choices appear as malignant, benign, unsure; the malignancy risk section is no longer shown.
 
 No other doctor opinions, ground-truth labels, or AI-vs-real source labels are sent to physician UI. For a true clinical intervention, clinical staff must not be misled about the nature of AI-generated scans, and a medically appropriate rescue pathway is required.
 
