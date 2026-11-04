@@ -32,7 +32,7 @@ ROOT = Path(os.getenv("WEB4SYN_DATA", Path(__file__).resolve().parents[1] / "dat
 ROOT.mkdir(parents=True, exist_ok=True)
 DATABASE = ROOT / "rct.sqlite"
 ARMS = ("NCCT", "AI", "REAL")
-LABELS = {"HCC", "ICC", "MET", "FNH", "HEM", "CYST", "OTHER"}
+LABELS = {"HCC", "ICC", "MET", "FNH", "HEM", "CYST", "OTHER", "UNSURE"}
 PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 SESSION_SECONDS = 12 * 3600
 ITERATIONS = 260000
@@ -961,9 +961,11 @@ def submit(task_id: int, payload: DiagnosisSubmission, user=Depends(reader)):
         if (payload.lesion_nature is None or payload.diagnosis is None
                 or payload.malignancy_risk is None):
             raise HTTPException(422, "Nature, diagnosis and risk required for visible lesion")
-    elif any(value is not None for value in (
+    elif payload.lesion_visible == "no" and any(value is not None for value in (
             payload.lesion_nature,payload.diagnosis,payload.malignancy_risk)):
-        raise HTTPException(422, "Further lesion ratings must be empty if presence is not yes")
+        raise HTTPException(422, "Further lesion ratings must be empty for absent lesion")
+    # If lesion existence is unsure, downstream assessments are optional and
+    # recorded exactly as supplied, without inferring a missing diagnosis.
     with database(immediate=True) as c:
         task = owned_task(c, task_id, user)
         previous = c.execute("SELECT submission_key FROM rct_results WHERE task_id=?",
