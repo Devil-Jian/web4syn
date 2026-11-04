@@ -9,12 +9,12 @@ function message(text, bad=false) {
   const node=el("notification"); node.textContent=text; node.className=bad?"error":"ok";
   clearTimeout(message.timer); message.timer=setTimeout(()=>node.textContent="",5500);
 }
-async function api(path, {method="GET", body=null, binary=false}={}) {
+async function api(path, {method="GET", body=null, binary=false, signal=null}={}) {
   const headers={};
   if(study.token) headers.Authorization="Bearer "+study.token;
   if(body!==null) headers["Content-Type"]="application/json";
   const response=await fetch("/api/rct"+path,{method,headers,
-    body:body===null?undefined:JSON.stringify(body),cache:"no-store"});
+    body:body===null?undefined:JSON.stringify(body),cache:"no-store",signal});
   if(!response.ok) {
     let detail="HTTP "+response.status;
     try { const data=await response.json(); detail=data.detail||detail; } catch {}
@@ -488,21 +488,34 @@ async function refreshReader(){
 }
 // The viewer swaps complete, decoded phase groups in a single animation frame.
 // Cache requests (and decoded images) so a rapid wheel gesture does not refetch.
-const viewer = {
-  cache: new Map(), pending: new Map(), shown: null,
-  frame: null, prefetchTimer: null, wheel: 0, wheelFrame: null,
-  wheelAt: 0, sliceEpoch: 0
+const PREFETCH_BATCH_DEPTH=12;
+const PREFETCH_RADIUS=20;
+const DECODED_BUDGET=128*1024*1024;
+const COMPRESSED_BUDGET=256*1024*1024;
+// Each reader owns one ephemeral CASE cache. Nothing persists between cases.
+const viewer={
+  cache:new Map(), compressed:new Map(), pending:new Map(),
+  shown:null,frame:null,prefetchTimer:null,wheel:0,wheelFrame:null,
+  wheelAt:0,sliceEpoch:0,direction:1,
+  abortController:new AbortController(),
+  batchAvailable:true,batchStarted:new Set(),batchQueue:[],batchActive:0,
+  singleStarted:new Set(),singleQueue:[],singleActive:0
 };
-function discardImages() {
+function discardImages(){
   study.generation++;
   viewer.sliceEpoch++;
+  viewer.abortController.abort();
+  viewer.abortController=new AbortController();
   if(viewer.frame!==null)cancelAnimationFrame(viewer.frame);
   if(viewer.wheelFrame!==null)cancelAnimationFrame(viewer.wheelFrame);
   clearTimeout(viewer.prefetchTimer);
   viewer.frame=null;viewer.wheelFrame=null;viewer.wheel=0;viewer.shown=null;
   viewer.pending.clear();
   for(const entry of viewer.cache.values())URL.revokeObjectURL(entry.url);
-  viewer.cache.clear();
+  viewer.cache.clear();viewer.compressed.clear();
+  viewer.batchQueue=[];viewer.batchStarted.clear();viewer.batchActive=0;
+  viewer.singleQueue=[];viewer.singleStarted.clear();viewer.singleActive=0;
+  viewer.direction=1;
   study.images.clear();study.expanded=null;study.transforms.clear();
 }
 async function startNext(){
