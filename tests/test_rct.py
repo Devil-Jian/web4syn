@@ -352,7 +352,7 @@ def test_lesion_nature_required_and_independent_for_visible_lesion(client):
     assert client.post(f"/api/rct/tasks/{task_id}/submit",headers=doctor,
                        json={**base,"lesion_nature":"invalid"}).status_code==422
     assert client.post(f"/api/rct/tasks/{task_id}/submit",headers=doctor,
-                       json={**base,"lesion_nature":"benign","malignancy_risk":None}).status_code==422
+                       json={**base,"lesion_nature":"benign","diagnosis":None}).status_code==422
     for nature in ["benign",None]:
         assert client.post(f"/api/rct/tasks/{task_id}/submit",headers=doctor,
             json={**base,"lesion_visible":"no","lesion_nature":nature}).status_code==422
