@@ -158,3 +158,34 @@ Tests use synthetic HDF5 stubs with temporary SQLite, not clinical packs. Before
 - Hospital PACS/EHR connectivity and independently qualified GCP-grade audit system
 
 These require a separate clinical/production implementation and protocol review. Current reader timing is opening-to-submit on server plus an optional client duration; background/inactive-time adjustment remains future work.
+
+
+## Remote reading performance: per-CASE progressive prefetch
+
+The reader viewer downloads the requested z/phase immediately, then prefetches
+the surrounding ~20 slices before loading the rest of the current CASE.
+Background batches use `GET /api/rct/tasks/{task_id}/images/batch?start=...&end=...`
+with a maximum of 12 contiguous slices and up to two batch HTTP requests
+in flight. The server validates task ownership, opened status, study publication
+and arm-specific access before rendering, and opens one HDF5 handle per batch.
+The legacy single-slice route remains a fallback.
+
+Batch wire format (application/octet-stream, no-store):
+`uint32_le(manifest_size) + UTF-8 JSON manifest + concatenated PNG images`.
+The manifest contains `version: 1` and `images: [{phase,z,offset,length}]`.
+Offsets are relative to the first PNG byte. No source HDF5 path is returned.
+
+Browser memory uses separate per-CASE budgets: ~128 MiB of decoded image
+data and ~256 MiB of compressed PNG blobs (approximate accounting, not an
+absolute browser RSS limit). The current frame, target frame and in-flight
+images are protected against eviction. The priority queue is rebuilt when
+scrolling direction changes; target images always bypass background batches.
+If batch requests are unsupported, the viewer switches to bounded single-image
+prefetching. On case completion or switching, in-flight prefetch requests are
+aborted and all patient image blobs/URLs are discarded.
+
+Security: prefetch never fetches other readers' cases or a forbidden REAL/AI
+arm. A doctor does not obtain the next CASE until the current diagnosis has
+been submitted through the existing task workflow. Measure p50/p95 slice
+latency and memory in the actual remote network before interpreting
+performance targets as achieved.
