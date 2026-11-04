@@ -4,6 +4,8 @@ Run: pip install -r requirements-dev.txt && pytest -q
 Uses temporary SQLite and synthetic HDF5 stubs; no clinical data required.
 """
 import collections
+import json
+import struct
 import os
 import secrets
 from pathlib import Path
@@ -22,6 +24,10 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(rct, "resolve_h5", lambda filename: Path(filename))
     monkeypatch.setattr(rct, "describe", lambda path: (12, 6, 6))
     monkeypatch.setattr(rct, "render", lambda image_ref, lo=-160, hi=240: b"\x89PNG\r\n\x1a\nstub")
+    monkeypatch.setattr(rct,"render_batch",
+        lambda filename,dataset,phases,start,end,lo,hi:[
+            (phase,z,b"\\x89PNG\\r\\n\\x1a\\nstub")
+            for z in range(start,end) for phase in phases])
     rct.initialize()
     app = FastAPI()
     app.include_router(rct.router)
@@ -379,3 +385,44 @@ def test_absent_lesion_has_no_nature_diagnosis_or_risk(client):
         result=db.execute("SELECT lesion_nature,diagnosis,malignancy_risk "
                           "FROM rct_results WHERE task_id=?",(task["id"],)).fetchone()
         assert all(x is None for x in result)
+
+
+def test_case_batch_has_authorized_phases_bounded_range_and_index(client):
+    admin=auth(client,"admin","change-this-in-production-12345")
+    populate(client,admin)
+    assert client.post("/api/rct/admin/randomize",headers=admin,
+                       json={"seed":"batch-security"}).status_code==200
+    assert client.post("/api/rct/admin/publish",headers=admin).status_code==200
+    reader=auth(client,"R01","reader-password-12345")
+    selected=client.get("/api/rct/tasks/next",headers=reader).json()["task"]
+    task_id=selected["id"]
+    url=f"/api/rct/tasks/{task_id}/images/batch?start=0&end=12"
+    assert client.get(url,headers=reader).status_code==403
+    assert client.get(url).status_code==401
+    task=client.get(f"/api/rct/tasks/{task_id}",headers=reader).json()
+    for query in ["start=-1&end=4","start=0&end=13",
+                  "start=6&end=6","start=0&end=100000"]:
+        assert client.get(f"/api/rct/tasks/{task_id}/images/batch?{query}",
+                          headers=reader).status_code==422
+    response=client.get(url,headers=reader)
+    assert response.status_code==200,response.text if response.status_code!=200 else ""
+    assert response.headers["cache-control"]=="private, no-store"
+    assert response.headers["content-type"].startswith("application/octet-stream")
+    payload=response.content
+    size=struct.unpack_from("<I",payload)[0]
+    manifest=json.loads(payload[4:4+size])
+    assert manifest["version"]==1
+    assert len(manifest["images"])==12*len(task["phases"])
+    for row in manifest["images"]:
+        assert row["phase"] in task["phases"]
+        assert 0<=row["z"]<12
+        start=4+size+row["offset"]
+        assert payload[start:start+8]==b"\\x89PNG\\r\\n\\x1a\\n"
+        assert row["length"]>8
+    # An opened task remains private to the assigned doctor.
+    other=auth(client,"R02","reader-password-12345")
+    assert client.get(url,headers=other).status_code==404
+    with rct.database() as c:
+        task_row=c.execute("SELECT arm FROM rct_tasks WHERE id=?",(task_id,)).fetchone()
+    if task_row["arm"]=="NCCT":
+        assert {row["phase"] for row in manifest["images"]}=={"NCCT"}
