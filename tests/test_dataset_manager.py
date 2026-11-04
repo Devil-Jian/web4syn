@@ -282,3 +282,22 @@ def test_force_end_requires_published_tasks(setup):
     with rct.database() as db:
         db.execute("UPDATE rct_studies SET status='locked' WHERE id=1")
     assert client.post("/api/rct/admin/end-round",headers=auth,json=req).status_code==409
+
+
+def test_hdf5_batch_renderer_supports_both_cect_layouts(setup):
+    _client,_auth,root=setup
+    for name,shape in [("DCHW.h5",(3,3,512,512)),
+                       ("CDHW.h5",(3,3,512,512))]:
+        with h5py.File(root/name,"w") as f:
+            f.create_dataset("ncct",data=__import__("numpy").zeros((3,512,512),dtype="f2"))
+            f.create_dataset("real_cect",shape=shape,dtype="f2")
+            f.create_dataset("syn_cect",shape=shape,dtype="f2")
+        images=h5_source.render_batch(name,"real_cect",["NCCT","AP","PVP","DP"],0,2)
+        assert len(images)==8
+        assert images[0][:2]==("NCCT",0)
+        assert images[-1][:2]==("DP",1)
+        assert all(image.startswith(b"\\x89PNG\\r\\n\\x1a\\n") for _,_,image in images)
+    with pytest.raises(ValueError):
+        h5_source.render_batch("DCHW.h5","real_cect",["NCCT","AP"],0,13)
+    with pytest.raises(IndexError):
+        h5_source.render_batch("DCHW.h5","real_cect",["NCCT","AP"],2,4)
