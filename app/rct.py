@@ -260,6 +260,8 @@ class DiagnosisSubmission(BaseModel):
     lesion_visible: Literal["yes", "no", "unsure"]
     lesion_nature: Literal["benign", "malignant", "unsure"] | None = None
     diagnosis: str | None = None
+    # Legacy field retained for compatibility with historical submissions/clients.
+    # The current reading form no longer collects malignancy risk.
     malignancy_risk: int | None = Field(default=None, ge=1, le=5)
     client_active_seconds: float | None = Field(default=None, ge=0, le=86400)
 
@@ -958,9 +960,8 @@ def submit(task_id: int, payload: DiagnosisSubmission, user=Depends(reader)):
     if payload.diagnosis not in LABELS | {None}:
         raise HTTPException(422, "Invalid diagnosis category")
     if payload.lesion_visible == "yes":
-        if (payload.lesion_nature is None or payload.diagnosis is None
-                or payload.malignancy_risk is None):
-            raise HTTPException(422, "Nature, diagnosis and risk required for visible lesion")
+        if payload.lesion_nature is None or payload.diagnosis is None:
+            raise HTTPException(422, "Nature and diagnosis required for visible lesion")
     elif payload.lesion_visible == "no" and any(value is not None for value in (
             payload.lesion_nature,payload.diagnosis,payload.malignancy_risk)):
         raise HTTPException(422, "Further lesion ratings must be empty for absent lesion")
