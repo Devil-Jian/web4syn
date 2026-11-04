@@ -460,3 +460,22 @@ def test_uncertain_lesion_presence_can_submit_without_followup_judgments(client)
     result=client.post(f"/api/rct/tasks/{task['id']}/submit",headers=doctor,json={
         "submission_key":secrets.token_hex(20),"lesion_visible":"unsure"})
     assert result.status_code==200,result.text
+
+
+def test_risk_score_is_optional_for_new_readings(client):
+    administrator=auth(client,"admin","change-this-in-production-12345")
+    populate(client,administrator,count=6)
+    assert client.post("/api/rct/admin/randomize",headers=administrator,
+                       json={"seed":"optional-risk"}).status_code==200
+    assert client.post("/api/rct/admin/publish",headers=administrator).status_code==200
+    doctor=auth(client,"R01","reader-password-12345")
+    task=client.get("/api/rct/tasks/next",headers=doctor).json()["task"]
+    assert client.get(f"/api/rct/tasks/{task['id']}",headers=doctor).status_code==200
+    response=client.post(f"/api/rct/tasks/{task['id']}/submit",headers=doctor,json={
+        "submission_key":secrets.token_hex(20),"lesion_visible":"yes",
+        "lesion_nature":"malignant","diagnosis":"HCC"})
+    assert response.status_code==200,response.text
+    with rct.database() as db:
+        risk=db.execute("SELECT malignancy_risk FROM rct_results WHERE task_id=?",
+                        (task["id"],)).fetchone()[0]
+    assert risk is None
