@@ -14,6 +14,7 @@ import random
 import re
 import secrets
 import sqlite3
+import struct
 import time
 from collections import Counter, defaultdict
 from contextlib import contextmanager
@@ -24,7 +25,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.h5_source import describe, encode, patient_files, render, resolve_h5
+from app.h5_source import describe, encode, patient_files, render, render_batch, resolve_h5
 
 router = APIRouter(prefix="/api/rct", tags=["three-arm-study"])
 ROOT = Path(os.getenv("WEB4SYN_DATA", Path(__file__).resolve().parents[1] / "data"))
@@ -892,6 +893,44 @@ def task_detail(task_id: int, user=Depends(reader)):
         phases = ["NCCT"] if task["arm"] == "NCCT" else ["NCCT", "AP", "PVP", "DP"]
         return {"id": task["id"], "public_code": task["public_code"],
                 "depth": task["depth"], "phases": phases, "status": "opened"}
+
+
+@router.get("/tasks/{task_id}/images/batch")
+def image_batch(task_id: int, start: int, end: int,
+                lo: float = -160, hi: float = 240,
+                user=Depends(reader)):
+    """Read at most 12 contiguous z slices and their authorized phases.
+
+    Wire format: uint32 little-endian manifest byte length, UTF-8 JSON manifest
+    (images include relative offsets and lengths), concatenated PNG payloads.
+    No actual patient paths or identifying labels appear in the manifest.
+    """
+    with database() as c:
+        task=owned_task(c,task_id,user)
+        if task["status"]!="opened":
+            raise HTTPException(403,"Open assigned task before viewing images")
+        if not (0<=start<end<=task["depth"] and end-start<=12):
+            raise HTTPException(422,"Batch must contain 1–12 valid slices")
+        phases=["NCCT"] if task["arm"]=="NCCT" else ["NCCT","AP","PVP","DP"]
+        dataset="ncct" if task["arm"]=="NCCT" else (
+            "syn_cect" if task["arm"]=="AI" else "real_cect")
+        filename=task["pack_filename"]
+    try:
+        images=render_batch(filename,dataset,phases,start,end,lo,hi)
+    except (ValueError,KeyError,IndexError,OSError,TypeError) as exc:
+        raise HTTPException(422,f"Unable to render batch: {str(exc)[:120]}")
+    manifest={"version":1,"images":[]}
+    offset=0
+    chunks=[]
+    for phase,z,png in images:
+        manifest["images"].append({"phase":phase,"z":z,"offset":offset,"length":len(png)})
+        offset+=len(png)
+        chunks.append(png)
+    header=json.dumps(manifest,separators=(",",":")).encode("utf-8")
+    return Response(struct.pack("<I",len(header))+header+b"".join(chunks),
+                    media_type="application/octet-stream",
+                    headers={"Cache-Control":"private, no-store",
+                             "X-Content-Type-Options":"nosniff"})
 
 
 @router.get("/tasks/{task_id}/images/{phase}/{z}")
