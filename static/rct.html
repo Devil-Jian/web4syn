@@ -165,8 +165,8 @@
             <fieldset><legend>1 · 是否存在肝脏病灶</legend><div class="choices"><label><input type="radio" name="lesion_visible" value="yes" required> 存在</label><label><input type="radio" name="lesion_visible" value="no"> 不存在</label><label><input type="radio" name="lesion_visible" value="unsure"> 不确定</label></div></fieldset>
             <fieldset id="nature-field" disabled><legend>2 · 病灶性质判断（单选）</legend>
               <div class="choices nature-choices">
-                <label><input type="radio" name="lesion_nature" value="benign"> 良性</label>
                 <label><input type="radio" name="lesion_nature" value="malignant"> 恶性</label>
+                <label><input type="radio" name="lesion_nature" value="benign"> 良性</label>
                 <label><input type="radio" name="lesion_nature" value="unsure"> 不确定</label>
               </div>
             </fieldset>
@@ -177,9 +177,10 @@
               <label class="disease-option"><input type="radio" name="diagnosis" value="FNH"><span class="disease-name">局灶性结节性增生</span><small>FNH</small></label>
               <label class="disease-option"><input type="radio" name="diagnosis" value="HEM"><span class="disease-name">肝血管瘤</span><small>HEM</small></label>
               <label class="disease-option"><input type="radio" name="diagnosis" value="CYST"><span class="disease-name">肝囊肿</span><small>CYST</small></label>
+              <label class="disease-option"><input type="radio" name="diagnosis" value="UNSURE"><span class="disease-name">不确定病灶类型</span><small>UNSURE</small></label>
               <label class="disease-option"><input type="radio" name="diagnosis" value="OTHER"><span class="disease-name">其他病灶<span class="disease-example">如：钙化灶、肝硬化、胆管结石等</span></span><small>OTHER</small></label>
             </div></fieldset>
-            <fieldset id="risk-field" disabled><legend>4 · 恶性风险（1–5级）</legend>
+            <fieldset id="risk-field" disabled aria-label="恶性可能性评分">
               <p class="risk-scale-hint">1 极低 · 2 较低 · 3 难以判断 · 4 较高 · 5 极高</p><div class="choices risks"><label><input type="radio" name="malignancy_risk" value="1"> 1</label><label><input type="radio" name="malignancy_risk" value="2"> 2</label><label><input type="radio" name="malignancy_risk" value="3"> 3</label><label><input type="radio" name="malignancy_risk" value="4"> 4</label><label><input type="radio" name="malignancy_risk" value="5"> 5</label></div></fieldset>
             <button type="submit" id="submit-button">提交并进入下一例</button>
             
@@ -190,5 +191,5 @@
   </section>
   <div id="notification" role="status" aria-live="polite"></div>
 </main>
-<script src="/static/rct.js?v=19" defer></script>
+<script src="/static/rct.js?v=20" defer></script>
 </body></html>
