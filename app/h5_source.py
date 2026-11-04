@@ -148,3 +148,53 @@ def render(image_ref, lo=-160.0, hi=240.0):
     buf = io.BytesIO()
     Image.fromarray(pixels, mode="L").save(buf, format="PNG")
     return buf.getvalue()
+
+
+def render_batch(filename, dataset, phases, start, end, lo=-160.0, hi=240.0):
+    """Render a bounded half-open slice interval, opening the HDF5 pack once.
+
+    Returns (phase, z, png_bytes) tuples. The caller must authorize phases
+    and the patient before invoking this function.
+    """
+    if not (-1200 <= lo < hi <= 3000) or hi - lo < 1:
+        raise ValueError("Invalid display window")
+    if not (0 <= start < end and end - start <= 12):
+        raise ValueError("Invalid batch range")
+    if dataset not in ("ncct", "real_cect", "syn_cect"):
+        raise ValueError("Invalid dataset")
+    if not phases or len(phases) > 4 or len(set(phases)) != len(phases):
+        raise ValueError("Invalid phases")
+    if (dataset == "ncct") != (tuple(phases) == ("NCCT",)):
+        # Mixed NCCT and CECT is allowed only for one exact CECT data source.
+        if dataset == "ncct" or "NCCT" not in phases:
+            raise ValueError("Invalid phase and dataset pairing")
+    if any(phase not in ("NCCT", *PHASES) for phase in phases):
+        raise ValueError("Invalid phase")
+
+    results = []
+    with h5py.File(resolve_h5(filename), "r") as f:
+        ncct = f["ncct"]
+        depth, height, width = ncct.shape
+        if end > depth:
+            raise IndexError("Batch slice out of range")
+        ce = None
+        layout = None
+        if any(phase != "NCCT" for phase in phases):
+            if dataset == "ncct":
+                raise ValueError("CECT requires real or synthetic dataset")
+            ce = f[dataset]
+            layout = _cect_layout(ce, depth, height, width)
+        for z in range(start, end):
+            for phase in phases:
+                if phase == "NCCT":
+                    image = np.asarray(ncct[z], dtype=np.float32)
+                else:
+                    channel = PHASES.index(phase)
+                    array = ce[z, channel] if layout == "DCHW" else ce[channel, z]
+                    image = np.asarray(array, dtype=np.float32)
+                image = np.nan_to_num(image, nan=lo, posinf=hi, neginf=lo)
+                pixels = np.clip((image - lo) * (255.0 / (hi - lo)), 0, 255).astype(np.uint8)
+                buf = io.BytesIO()
+                Image.fromarray(pixels, mode="L").save(buf, format="PNG")
+                results.append((phase, z, buf.getvalue()))
+    return results
