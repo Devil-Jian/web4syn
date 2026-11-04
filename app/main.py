@@ -12,8 +12,10 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse, Response
+from fastapi.responses import FileResponse, StreamingResponse, Response, JSONResponse
 from app.h5_source import patient_files, describe, encode, render
+from app.rct import router as rct_router
+from app.dataset_manager import router as dataset_router, start_scan as start_dataset_scan
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -25,11 +27,22 @@ IMAGES.mkdir(parents=True, exist_ok=True)
 DB = DATA / "web4syn.sqlite"
 SESSION_TTL = 12 * 3600
 LABELS = {"HCC", "ICC", "MET", "FNH", "HEM", "CYST", "OTHER"}
-app = FastAPI(title="web4syn Reader Study")
+app = FastAPI(title="Web4Syn Clinical Study")
+app.include_router(rct_router)
+app.include_router(dataset_router)
+
+@app.on_event("startup")
+def auto_index_h5_files():
+    # Metadata-only scan occurs in a daemon thread; never block clinician logins.
+    start_dataset_scan()
+
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 @app.middleware("http")
 async def disable_reader_cache(request, call_next):
+    # Legacy V1 task API was anonymous. Disable it by default on the RCT branch.
+    if request.url.path.startswith("/api/tasks") and os.getenv("WEB4SYN_ENABLE_LEGACY_DEMO") != "1":
+        return JSONResponse({"detail": "Legacy anonymous reader disabled; use /rct"}, status_code=403)
     response = await call_next(request)
     if request.url.path == "/" or request.url.path.startswith("/static/") or request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
@@ -108,7 +121,13 @@ def local_reviewer():
 
 @app.get("/")
 def index():
-    return FileResponse(ROOT / "static" / "index.html")
+    page = "index.html" if os.getenv("WEB4SYN_ENABLE_LEGACY_DEMO") == "1" else "rct.html"
+    return FileResponse(ROOT / "static" / page)
+
+
+@app.get("/rct")
+def rct_index():
+    return FileResponse(ROOT / "static" / "rct.html")
 
 
 def import_packs(user):
@@ -177,6 +196,8 @@ def prepare_demo_cases(uid):
 
 @app.on_event("startup")
 def load_local_tasks():
+    if os.getenv("WEB4SYN_ENABLE_LEGACY_DEMO") != "1":
+        return
     uid = local_reviewer()["id"]
     report = prepare_demo_cases(uid)
     if report["import"]["errors"]:

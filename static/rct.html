@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>评阅系统</title>
+  <link rel="stylesheet" href="/static/rct.css?v=10">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="mark">阅</span><div><strong>评阅系统</strong></div></div>
+  <div class="topright"><span id="identity">未登录</span><button id="logout" class="quiet" hidden>退出登录</button></div>
+</header>
+<main>
+  <section class="login card" id="login-section">
+    <h1>临床阅片研究平台</h1>
+    <form id="login-form" class="stack">
+      <label>账号 <input name="username" autocomplete="username" required></label>
+      <label>密码 <input name="password" type="password" autocomplete="current-password" required></label>
+      <button type="submit">登录平台</button>
+    </form>
+    <button type="button" class="quiet auth-link" id="show-register">医生注册账号</button>
+    <div id="registration-panel" hidden>
+      <h2>医生注册</h2>
+      <form id="registration-form" class="stack" autocomplete="off">
+        <label>登录账号（至少3位字母、数字或下划线）<input name="username" required minlength="3" maxlength="80" pattern="[A-Za-z0-9_-]+" autocomplete="username"></label>
+        <label>姓名或阅片代号 <input name="display_name" maxlength="80" required></label>
+        <label>设置密码（至少6位）<input name="password" type="password" minlength="6" maxlength="256" autocomplete="new-password" required></label>
+        <label>确认密码 <input name="confirm_password" type="password" minlength="6" maxlength="256" autocomplete="new-password" required></label>
+        <button type="submit">注册</button>
+        <button type="button" id="cancel-register" class="quiet">返回登录</button>
+      </form>
+      <p id="registration-result" class="hint" role="status"></p>
+    </div>
+  </section>
+
+  <section id="admin-section" hidden>
+    <div class="heading"><div><div class="eyebrow">STUDY ADMINISTRATION</div><h1>研究管理控制台</h1><p id="study-status"></p></div><button class="quiet" id="admin-refresh">刷新状态</button></div>
+    <div class="metrics" id="admin-metrics"></div>
+    <div class="admin-grid">
+      <article class="card wide launch-card">
+        <div class="eyebrow">快速发布 · 3 STEPS</div>
+        <h2>发布阅片任务</h2>
+        <p class="hint">① 在下方患者列表排除不需要的病例　② 确认6–9名医生已启用　③ 点击发布。系统自动锁定队列、1:1:1随机分配并发布。</p>
+        <div id="launch-summary" class="launch-summary">正在读取病例和医生数量…</div>
+        <div id="launch-errors" class="hint"></div>
+        <button id="launch-button" type="button">一键分配并发布任务</button>
+        <p id="launch-result" class="hint"></p>
+      </article>
+      <article class="card">
+        <h2>① 用户账号管理</h2>
+        <p class="hint">可直接添加医生账号、编辑、重置密码或删除。已有阅片任务的账号不能删除。</p>
+        <form id="reader-form" class="stack compact">
+          <label>登录账号 <input name="username" autocomplete="off" pattern="[A-Za-z0-9_-]+" required></label>
+          <label>姓名/代号 <input name="display_name" required></label>
+          <label>资历 <select name="level"><option value="junior">初级</option><option value="intermediate">中级</option><option value="senior">高级</option></select></label>
+          <label>临时密码（≥6位） <input name="password" type="password" minlength="6" autocomplete="new-password" required></label>
+          <button>添加账号</button>
+        </form>
+        <div class="data-list" id="reader-list"></div>
+        <div id="reader-edit-panel" class="reader-editor" hidden>
+          <h3 id="reader-edit-title">编辑医生</h3>
+          <form id="reader-edit-form" class="stack compact">
+            <label>显示姓名/代号 <input name="display_name" maxlength="80" required></label>
+            <label>医生资历 <select name="level"><option value="">未设置</option><option value="junior">初级</option><option value="intermediate">中级</option><option value="senior">高级</option></select></label>
+            <div class="actions"><button type="submit">保存资料</button><button class="quiet" type="button" id="reader-edit-cancel">取消</button></div>
+          </form>
+        </div>
+        <div id="reader-password-panel" class="reader-editor" hidden>
+          <h3 id="reader-password-title">重置医生密码</h3>
+          <form id="reader-password-form" class="stack compact" autocomplete="off">
+            <label>新密码（至少6位） <input type="password" name="password" minlength="6" maxlength="256" autocomplete="new-password" required></label>
+            <label>当前管理员密码 <input type="password" name="admin_password" autocomplete="current-password" required></label>
+            <div class="actions"><button type="submit">确认重置密码</button><button class="quiet" type="button" id="reader-password-cancel">取消</button></div>
+          </form>
+          <p class="hint">重置会立即使该医生已登录的会话失效，已有阅片任务和结果不受影响。</p>
+        </div>
+      </article>
+      <article class="card wide">
+        <h2>② 选择患者（默认全选，按需排除）</h2>
+        <p class="hint">自动扫描 /dataset/RCTs/data_h5_v2；只建立文件索引，不执行影像质量检查。源文件保持只读。</p>
+        <div class="dataset-toolbar">
+          <button id="dataset-scan" class="quiet">重新扫描目录</button>
+          <span id="dataset-scan-status" class="hint">等待扫描状态</span>
+
+        </div>
+        <div id="dataset-counts" class="dataset-counts"></div>
+        <div class="dataset-toolbar">
+          <input id="dataset-query" placeholder="搜索患者编号、文件名或标签" aria-label="搜索患者">
+          <select id="dataset-filter" aria-label="病例状态">
+            <option value="all">全部病例</option>
+            <option value="included">拟纳入</option>
+            <option value="excluded">已排除</option>
+            <option value="missing">文件缺失</option>
+            <option value="unreadable">元数据无法读取</option>
+          </select>
+          <button class="quiet" id="dataset-search">筛选</button>
+          <button class="danger-outline" id="dataset-exclude">排除所选</button>
+          <button class="quiet" id="dataset-restore">恢复所选</button>
+        </div>
+        <div class="data-list" id="dataset-table"></div>
+        <div class="dataset-toolbar">
+          <button class="quiet" id="dataset-prev">上一页</button>
+          <span id="dataset-page"></span>
+          <button class="quiet" id="dataset-next">下一页</button>
+        </div>
+        <div id="dataset-preview" class="dataset-preview" hidden>
+          <div class="dataset-toolbar">
+            <strong id="dataset-preview-title"></strong>
+            <button class="quiet" id="dataset-preview-close">关闭预览</button>
+          </div>
+          <div class="phase-grid" id="dataset-preview-grid"></div>
+          <div class="dataset-toolbar">
+            <button class="quiet" id="dataset-preview-prev">◀</button>
+            <span id="dataset-preview-z"></span>
+            <button class="quiet" id="dataset-preview-next">▶</button>
+          </div>
+        </div>
+      </article>
+      <article class="card wide">
+        <h2>③ 任务进度与结果导出</h2>
+        <div id="progress-table" class="data-list"></div>
+        <div class="actions">
+          <button class="quiet" id="progress-refresh">刷新进度</button>
+          <button class="danger-outline" id="lock-button">全部完成后锁定研究</button>
+          <button id="export-button">导出锁定数据CSV</button>
+        </div>
+        <p class="hint">解盲导出仅在数据库锁定后启用。平台不向医生展示组别与其他医生结果。</p>
+        <div class="round-management">
+          <h3>本轮任务管理</h3>
+          <p class="hint">不必等待所有医生完成。强制结束会立即停止本轮阅片，把已完成结果及未完成分配归档，然后返回可发布下一轮的状态。</p>
+          <button id="end-round-button" type="button" class="danger-outline" hidden>强制结束本轮并开启下一轮</button>
+          <div class="data-list" id="round-archives"></div>
+        </div>
+        <div id="test-reset-panel" class="test-reset-panel" hidden>
+          <h3>测试研究重置</h3>
+          <p class="hint">仅测试环境：重置前备份数据库，清除本轮任务、评阅结果和研究队列；保留医生账号、HDF5索引、排除记录及操作审计。已正式锁定的研究不可重置。</p>
+          <button type="button" id="test-reset-button" class="danger-outline">重置测试研究并重新选择病例</button>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section id="reader-section" hidden>
+    <div id="reader-idle" class="card">
+      <div><span id="reader-summary"></span><span id="reader-idle-message"></span></div>
+      <button id="continue-button">开始 / 继续阅片</button>
+    </div>
+    <section id="reading" hidden>
+      <div class="reading-head">
+        <strong id="case-number">CASE-</strong>
+        <span class="reading-timer">评阅时间 <strong id="reading-elapsed">00:00</strong></span>
+      </div>
+      <div class="reading-layout">
+        <div class="image-panel">
+          <div id="phase-grid" class="phase-grid"></div>
+          <div class="slice-controls-inline" aria-label="切片切换">
+            <button type="button" id="slice-prev" class="slice-nav" aria-label="上一张切片" title="上一张">&lt;</button>
+            <span class="slice-counter" id="slice-position">0 / 0</span>
+            <button type="button" id="slice-next" class="slice-nav" aria-label="下一张切片" title="下一张">&gt;</button>
+          </div>
+        </div>
+        <aside class="diagnosis card">
+          <h2>临床诊断评价</h2>
+          <form id="diagnosis-form" class="stack">
+            <fieldset><legend>1 · 是否存在肝脏病灶</legend><div class="choices"><label><input type="radio" name="lesion_visible" value="yes" required> 存在</label><label><input type="radio" name="lesion_visible" value="no"> 不存在</label><label><input type="radio" name="lesion_visible" value="unsure"> 不确定</label></div></fieldset>
+            <fieldset id="nature-field" disabled><legend>2 · 病灶性质判断（单选）</legend>
+              <div class="choices nature-choices">
+                <label><input type="radio" name="lesion_nature" value="malignant"> 恶性</label>
+                <label><input type="radio" name="lesion_nature" value="benign"> 良性</label>
+                <label><input type="radio" name="lesion_nature" value="unsure"> 不确定</label>
+              </div>
+            </fieldset>
+            <fieldset id="diagnosis-field" disabled><legend>3 · 主要疾病类型（单选）</legend><div class="diseases">
+              <label class="disease-option"><input type="radio" name="diagnosis" value="HCC"><span class="disease-name">肝细胞癌</span><small>HCC</small></label>
+              <label class="disease-option"><input type="radio" name="diagnosis" value="ICC"><span class="disease-name">肝内胆管癌</span><small>ICC</small></label>
+              <label class="disease-option"><input type="radio" name="diagnosis" value="MET"><span class="disease-name">肝转移瘤</span><small>MET</small></label>
+              <label class="disease-option"><input type="radio" name="diagnosis" value="FNH"><span class="disease-name">局灶性结节性增生</span><small>FNH</small></label>
+              <label class="disease-option"><input type="radio" name="diagnosis" value="HEM"><span class="disease-name">肝血管瘤</span><small>HEM</small></label>
+              <label class="disease-option"><input type="radio" name="diagnosis" value="CYST"><span class="disease-name">肝囊肿</span><small>CYST</small></label>
+              <label class="disease-option"><input type="radio" name="diagnosis" value="OTHER"><span class="disease-name">其他病灶<span class="disease-example">如：钙化灶、肝硬化、胆管结石等</span></span><small>OTHER</small></label>
+              <label class="disease-option"><input type="radio" name="diagnosis" value="UNSURE"><span class="disease-name">不确定病灶类型</span><small>UNSURE</small></label>
+            </div></fieldset>
+            <button type="submit" id="submit-button">提交并进入下一例</button>
+            
+          </form>
+        </aside>
+      </div>
+    </section>
+  </section>
+  <div id="notification" role="status" aria-live="polite"></div>
+</main>
+<script src="/static/rct.js?v=21" defer></script>
+</body></html>
