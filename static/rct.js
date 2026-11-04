@@ -852,7 +852,7 @@ document.addEventListener("keydown",e=>{
 function syncDiagnosisFields(){
   const form=el("diagnosis-form");
   const present=form.querySelector('input[name="lesion_visible"]:checked')?.value;
-  const rated=present==="yes";
+  const rated=present==="yes"||present==="unsure";
   for(const [field,id] of [["lesion_nature","nature-field"],
                           ["diagnosis","diagnosis-field"],
                           ["malignancy_risk","risk-field"]]){
