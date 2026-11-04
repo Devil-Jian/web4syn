@@ -574,20 +574,64 @@ el("continue-button").onclick=startNext;
 function imageKey(phase,z,task=study.task){
   return [task.id,phase,z,study.lo,study.hi].join("|");
 }
+function rememberCompressed(key,blob,task){
+  if(viewer.compressed.has(key))viewer.compressed.delete(key);
+  viewer.compressed.set(key,{blob,bytes:blob.size});
+  trimCompressedCache(task);
+}
+function pinnedImageKeys(task){
+  const pins=new Set(viewer.pending.keys());
+  for(const z of [viewer.shown,study.z]){
+    if(z===null)continue;
+    for(const phase of task.phases)pins.add(imageKey(phase,z,task));
+  }
+  return pins;
+}
+function trimCompressedCache(task){
+  let bytes=0;
+  for(const item of viewer.compressed.values())bytes+=item.bytes;
+  if(bytes<=COMPRESSED_BUDGET)return;
+  const pinned=pinnedImageKeys(task);
+  for(const [key,item] of viewer.compressed){
+    if(bytes<=COMPRESSED_BUDGET)break;
+    if(pinned.has(key))continue;
+    viewer.compressed.delete(key);bytes-=item.bytes;
+  }
+}
+function trimImageCache(task){
+  let bytes=0;
+  for(const item of viewer.cache.values())bytes+=item.bytes;
+  if(bytes<=DECODED_BUDGET)return;
+  const pinned=pinnedImageKeys(task);
+  for(const [key,item] of viewer.cache){
+    if(bytes<=DECODED_BUDGET)break;
+    if(pinned.has(key))continue;
+    URL.revokeObjectURL(item.url);
+    viewer.cache.delete(key);bytes-=item.bytes;
+  }
+}
 async function cachedSlice(task,phase,z,epoch){
   const key=imageKey(phase,z,task);
   if(viewer.cache.has(key)){
     const item=viewer.cache.get(key);
-    viewer.cache.delete(key);viewer.cache.set(key,item); // LRU touch
+    viewer.cache.delete(key);viewer.cache.set(key,item);
     return item;
   }
   if(viewer.pending.has(key))return viewer.pending.get(key);
   const promise=(async()=>{
-    const blob=await api("/tasks/"+task.id+"/images/"+phase+"/"+z+
-      "?lo="+encodeURIComponent(study.lo)+"&hi="+encodeURIComponent(study.hi),{binary:true});
+    let compressed=viewer.compressed.get(key);
+    let blob=compressed?.blob;
+    if(!blob){
+      blob=await api("/tasks/"+task.id+"/images/"+phase+"/"+z+
+        "?lo="+encodeURIComponent(study.lo)+"&hi="+encodeURIComponent(study.hi),
+        {binary:true,signal:viewer.abortController.signal});
+      if(epoch!==study.generation||study.task?.id!==task.id)return null;
+      rememberCompressed(key,blob,task);
+    }else{
+      viewer.compressed.delete(key);viewer.compressed.set(key,compressed);
+    }
     const url=URL.createObjectURL(blob);
     try{
-      // Decode before swapping: otherwise the browser briefly paints a blank tile.
       const preload=new Image();
       preload.src=url;
       if(preload.decode)await preload.decode();
@@ -598,7 +642,7 @@ async function cachedSlice(task,phase,z,epoch){
       if(epoch!==study.generation||study.task?.id!==task.id){
         URL.revokeObjectURL(url);return null;
       }
-      const item={url};
+      const item={url,image:preload,bytes:(preload.naturalWidth||512)*(preload.naturalHeight||512)*4};
       viewer.cache.set(key,item);
       trimImageCache(task);
       return item;
@@ -608,26 +652,121 @@ async function cachedSlice(task,phase,z,epoch){
   try{return await promise;}
   finally{if(viewer.pending.get(key)===promise)viewer.pending.delete(key);}
 }
-function trimImageCache(task){
-  // Keep current and adjacent slices. Never revoke a URL currently painted.
-  const pinned=new Set();
-  if(viewer.shown!==null){
-    for(const phase of task.phases)pinned.add(imageKey(phase,viewer.shown,task));
+function readBatchEnvelope(buffer,task,start,end){
+  const view=new DataView(buffer);
+  if(buffer.byteLength<4)throw Error("Truncated batch response");
+  const headerLength=view.getUint32(0,true);
+  if(headerLength>65536||headerLength+4>buffer.byteLength)throw Error("Invalid batch header");
+  const header=JSON.parse(new TextDecoder().decode(new Uint8Array(buffer,4,headerLength)));
+  if(header.version!==1||!Array.isArray(header.images))throw Error("Unsupported batch format");
+  const expected=(end-start)*task.phases.length;
+  if(header.images.length!==expected)throw Error("Incomplete batch");
+  const payloadStart=4+headerLength;
+  const result=new Map();
+  for(const item of header.images){
+    if(!task.phases.includes(item.phase)||!Number.isInteger(item.z)
+       ||item.z<start||item.z>=end||!Number.isInteger(item.offset)
+       ||!Number.isInteger(item.length)||item.offset<0||item.length<8
+       ||payloadStart+item.offset+item.length>buffer.byteLength)
+      throw Error("Invalid batch image metadata");
+    const key=imageKey(item.phase,item.z,task);
+    if(result.has(key))throw Error("Duplicate batch image");
+    result.set(key,new Blob([buffer.slice(payloadStart+item.offset,
+      payloadStart+item.offset+item.length)],{type:"image/png"}));
   }
-  // Protect the new target and any currently requested image from LRU eviction.
-  for(const phase of task.phases)pinned.add(imageKey(phase,study.z,task));
-  for(const key of viewer.pending.keys())pinned.add(key);
-  if(viewer.cache.size<=72)return;
-  for(const [key,item] of viewer.cache){
-    if(viewer.cache.size<=48)break;
-    if(!pinned.has(key)){
-      URL.revokeObjectURL(item.url);viewer.cache.delete(key);
+  if(result.size!==expected)throw Error("Invalid batch count");
+  return result;
+}
+function prefetchPriority(task,z){
+  const delta=z-study.z;
+  return Math.abs(delta)-(Math.sign(delta)===viewer.direction?0.25:0);
+}
+function buildPrefetchQueues(task){
+  // Reprioritize outstanding work whenever a physician changes viewing direction.
+  const blocks=[];
+  for(let start=0;start<task.depth;start+=PREFETCH_BATCH_DEPTH){
+    const end=Math.min(task.depth,start+PREFETCH_BATCH_DEPTH);
+    const center=(start+end-1)/2;
+    const distance=Math.max(0,Math.abs(center-study.z)-(end-start)/2);
+    const stage=distance<=PREFETCH_RADIUS?0:1;
+    const direction=(center-study.z)*viewer.direction>=0?0:1;
+    blocks.push({start,end,stage,distance,direction});
+  }
+  blocks.sort((a,b)=>a.stage-b.stage||a.distance-b.distance||
+    a.direction-b.direction||a.start-b.start);
+  viewer.batchQueue=blocks.filter(b=>!viewer.batchStarted.has(b.start));
+  if(!viewer.batchAvailable){
+    const zs=Array.from({length:task.depth},(_,z)=>z);
+    zs.sort((a,b)=>prefetchPriority(task,a)-prefetchPriority(task,b));
+    viewer.singleQueue=[];
+    for(const z of zs)for(const phase of task.phases){
+      const key=imageKey(phase,z,task);
+      if(!viewer.singleStarted.has(key)&&!viewer.compressed.has(key))
+        viewer.singleQueue.push({phase,z,key});
     }
+  }
+}
+function scheduleCasePrefetch(){
+  if(!study.task)return;
+  const epoch=study.generation,task=study.task;
+  clearTimeout(viewer.prefetchTimer);
+  viewer.prefetchTimer=setTimeout(()=>{
+    if(epoch!==study.generation||task!==study.task)return;
+    buildPrefetchQueues(task);
+    pumpCasePrefetch(task,epoch);
+  },90);
+}
+function pumpCasePrefetch(task,epoch){
+  if(epoch!==study.generation||task!==study.task)return;
+  if(!viewer.batchAvailable){
+    while(viewer.singleActive<2&&viewer.singleQueue.length&&viewer.pending.size<6){
+      const work=viewer.singleQueue.shift();
+      if(viewer.compressed.has(work.key)||viewer.singleStarted.has(work.key))continue;
+      viewer.singleStarted.add(work.key);viewer.singleActive++;
+      cachedSlice(task,work.phase,work.z,epoch).catch(()=>{}).finally(()=>{
+        if(epoch!==study.generation)return;
+        viewer.singleActive--;
+        pumpCasePrefetch(task,epoch);
+      });
+    }
+    return;
+  }
+  while(viewer.batchActive<2&&viewer.batchQueue.length&&viewer.pending.size<6){
+    const work=viewer.batchQueue.shift();
+    if(viewer.batchStarted.has(work.start))continue;
+    viewer.batchStarted.add(work.start);
+    viewer.batchActive++;
+    const url="/api/rct/tasks/"+task.id+"/images/batch?start="+work.start+
+      "&end="+work.end+"&lo="+encodeURIComponent(study.lo)+
+      "&hi="+encodeURIComponent(study.hi);
+    (async()=>{
+      const response=await fetch(url,{
+        headers:{Authorization:"Bearer "+study.token},
+        cache:"no-store",signal:viewer.abortController.signal
+      });
+      if(response.status===404||response.status===405||response.status===501){
+        viewer.batchAvailable=false;return;
+      }
+      if(!response.ok)throw Error("Batch HTTP "+response.status);
+      const items=readBatchEnvelope(await response.arrayBuffer(),task,work.start,work.end);
+      if(epoch!==study.generation||task!==study.task)return;
+      for(const [key,blob] of items){
+        if(!viewer.compressed.has(key))rememberCompressed(key,blob,task);
+      }
+      // Decode the immediate neighborhood only; retain the rest as compressed PNG.
+      for(let z=Math.max(work.start,study.z-2);z<Math.min(work.end,study.z+3);z++)
+        for(const phase of task.phases)cachedSlice(task,phase,z,epoch).catch(()=>{});
+    })().catch(()=>{}).finally(()=>{
+      if(epoch!==study.generation)return;
+      viewer.batchActive--;
+      if(!viewer.batchAvailable)buildPrefetchQueues(task);
+      pumpCasePrefetch(task,epoch);
+    });
   }
 }
 async function renderImages(){
   if(!study.task)return;
-  const epoch=study.generation, request=++viewer.sliceEpoch;
+  const epoch=study.generation,request=++viewer.sliceEpoch;
   const task=study.task,z=study.z;
   el("slice-position").textContent=(z+1)+" / "+task.depth;
   el("slice-prev").disabled=z===0;
@@ -638,8 +777,8 @@ async function renderImages(){
   if(epoch!==study.generation||task!==study.task||request!==viewer.sliceEpoch)return;
   const failed=phaseImages.find(p=>p.status!=="fulfilled"||!p.value.item);
   if(failed){
-    // Keep the last fully rendered phase group instead of clearing individual tiles.
     message("切片加载失败，保留上一帧。请稍后重试。",true);
+    scheduleCasePrefetch();
     return;
   }
   if(viewer.frame!==null)cancelAnimationFrame(viewer.frame);
@@ -647,29 +786,20 @@ async function renderImages(){
     viewer.frame=null;
     if(epoch!==study.generation||task!==study.task||request!==viewer.sliceEpoch)return;
     for(const {value:{phase,item}} of phaseImages){
-      const img=[...document.querySelectorAll("#phase-grid .phase")].find(node=>node.dataset.phase===phase)?.querySelector("img");
+      const img=[...document.querySelectorAll("#phase-grid .phase")]
+        .find(node=>node.dataset.phase===phase)?.querySelector("img");
       if(img&&img.src!==item.url)img.src=item.url;
     }
     viewer.shown=z;
     trimImageCache(task);
-    clearTimeout(viewer.prefetchTimer);
-    // Prefetch only after current slice is shown and the user briefly stops.
-    viewer.prefetchTimer=setTimeout(()=>{
-      if(epoch!==study.generation||task!==study.task||request!==viewer.sliceEpoch)return;
-      for(const offset of [-1,1]){
-        const neighbor=z+offset;
-        if(neighbor<0||neighbor>=task.depth)continue;
-        for(const phase of task.phases){
-          cachedSlice(task,phase,neighbor,epoch).catch(()=>{});
-        }
-      }
-    },100);
+    scheduleCasePrefetch();
   });
 }
 function moveSlice(delta){
   if(!study.task||el("reading").hidden)return;
   const next=Math.min(study.task.depth-1,Math.max(0,study.z+delta));
   if(next===study.z)return;
+  viewer.direction=delta>0?1:-1;
   study.z=next;
   renderImages();
 }
