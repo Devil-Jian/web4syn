@@ -26,7 +26,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(rct, "render", lambda image_ref, lo=-160, hi=240: b"\x89PNG\r\n\x1a\nstub")
     monkeypatch.setattr(rct,"render_batch",
         lambda filename,dataset,phases,start,end,lo,hi:[
-            (phase,z,b"\\x89PNG\\r\\n\\x1a\\nstub")
+            (phase,z,b"\x89PNG\r\n\x1a\nstub")
             for z in range(start,end) for phase in phases])
     rct.initialize()
     app = FastAPI()
@@ -417,7 +417,7 @@ def test_case_batch_has_authorized_phases_bounded_range_and_index(client):
         assert row["phase"] in task["phases"]
         assert 0<=row["z"]<12
         start=4+size+row["offset"]
-        assert payload[start:start+8]==b"\\x89PNG\\r\\n\\x1a\\n"
+        assert payload[start:start+8]==b"\x89PNG\r\n\x1a\n"
         assert row["length"]>8
     # An opened task remains private to the assigned doctor.
     other=auth(client,"R02","reader-password-12345")
