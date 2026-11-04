@@ -513,6 +513,7 @@ function discardImages(){
   viewer.pending.clear();
   for(const entry of viewer.cache.values())URL.revokeObjectURL(entry.url);
   viewer.cache.clear();viewer.compressed.clear();
+  viewer.batchAvailable=true;
   viewer.batchQueue=[];viewer.batchStarted.clear();viewer.batchActive=0;
   viewer.singleQueue=[];viewer.singleStarted.clear();viewer.singleActive=0;
   viewer.direction=1;
