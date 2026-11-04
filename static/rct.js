@@ -854,8 +854,7 @@ function syncDiagnosisFields(){
   const present=form.querySelector('input[name="lesion_visible"]:checked')?.value;
   const rated=present==="yes"||present==="unsure";
   for(const [field,id] of [["lesion_nature","nature-field"],
-                          ["diagnosis","diagnosis-field"],
-                          ["malignancy_risk","risk-field"]]){
+                          ["diagnosis","diagnosis-field"]]){
     const section=el(id);
     section.disabled=!rated;
     section.classList.toggle("disabled",!rated);
@@ -868,8 +867,8 @@ el("diagnosis-form").onsubmit=async e=>{
   if(!study.task||study.busy)return;
   const values=formData(e.currentTarget);
   if(values.lesion_visible==="yes"&&
-     (!values.lesion_nature||!values.diagnosis||!values.malignancy_risk)){
-    message("存在病灶时，请完成性质判断、疾病类型及恶性风险评分",true);return;
+     (!values.lesion_nature||!values.diagnosis)){
+    message("存在病灶时，请完成病灶性质与主要疾病类型判断",true);return;
   }
   study.busy=true;el("submit-button").disabled=true;
   const payload={
@@ -877,7 +876,6 @@ el("diagnosis-form").onsubmit=async e=>{
     lesion_visible:values.lesion_visible,
     lesion_nature:values.lesion_nature||null,
     diagnosis:values.diagnosis||null,
-    malignancy_risk:values.malignancy_risk?Number(values.malignancy_risk):null,
     client_active_seconds:Math.max(0,(Date.now()-study.startTime)/1000)
   };
   const id=study.task.id;
