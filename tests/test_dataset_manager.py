@@ -104,7 +104,7 @@ def test_gated_admin_reset_preserves_index_and_backups(setup, monkeypatch):
     assert client.get(f"/api/rct/tasks/{a['id']}",headers=reader_auth).status_code==200
     submitted=client.post(f"/api/rct/tasks/{a['id']}/submit",headers=reader_auth,json={
         "submission_key":"reset-submission-123456","lesion_visible":"yes",
-        "lesion_nature":"malignant","diagnosis":"HCC","malignancy_risk":4})
+        "lesion_nature":"malignant","diagnosis":"HCC","malignancy_risk":4,"diagnostic_confidence":4})
     assert submitted.status_code==200,submitted.text
     payload={"confirm":"RESET TEST STUDY","password":"test-admin-password-1234"}
     assert client.post("/api/rct/admin/reset-test-study",headers=admin_auth,json=payload).status_code==403
@@ -236,7 +236,8 @@ def test_force_end_partial_round_and_publish_second_round(setup):
     assert client.get(f"/api/rct/tasks/{task['id']}",headers=doctor_auth).status_code==200
     submit=client.post(f"/api/rct/tasks/{task['id']}/submit",headers=doctor_auth,json={
         "submission_key":"partial-round-submission-1234",
-        "lesion_visible":"yes","lesion_nature":"malignant","diagnosis":"HCC","malignancy_risk":4})
+        "lesion_visible":"yes","lesion_nature":"malignant","diagnosis":"HCC",
+        "malignancy_risk":4,"diagnostic_confidence":5})
     assert submit.status_code==200,submit.text
     req={"confirm":"END CURRENT ROUND","admin_password":"test-admin-password-1234",
          "reason":"First test complete"}
@@ -262,6 +263,7 @@ def test_force_end_partial_round_and_publish_second_round(setup):
     assert len(exported.text.strip().splitlines())==9
     assert "HCC" in exported.text and "submitted" in exported.text
     assert "lesion_nature" in exported.text.splitlines()[0]
+    assert "diagnostic_confidence" in exported.text.splitlines()[0]
     assert "malignant" in exported.text
     assert "assigned" in exported.text or "opened" in exported.text
     assert client.post("/api/rct/admin/end-round",headers=administrator,json=req).status_code==409

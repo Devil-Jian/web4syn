@@ -96,11 +96,13 @@ def test_single_assignment_three_arms_and_submit_once(client):
             invalid = client.post(f"/api/rct/tasks/{task_id}/submit", headers=reader, json={
                 "submission_key": secrets.token_hex(20), "lesion_visible": "yes",
                 "lesion_nature": "malignant", "diagnosis": None, "malignancy_risk": 4,
+                "diagnostic_confidence": 4,
             })
             assert invalid.status_code == 422
             submission = {
                 "submission_key": secrets.token_hex(20), "lesion_visible": "yes",
-                "lesion_nature": "malignant", "diagnosis": "HCC", "malignancy_risk": 4, "client_active_seconds": 45.2,
+                "lesion_nature": "malignant", "diagnosis": "HCC", "malignancy_risk": 4,
+                "diagnostic_confidence": 5, "client_active_seconds": 45.2,
             }
             response = client.post(f"/api/rct/tasks/{task_id}/submit", headers=reader, json=submission)
             assert response.status_code == 200, response.text
@@ -118,6 +120,7 @@ def test_single_assignment_three_arms_and_submit_once(client):
     assert data.status_code == 200
     assert len(data.text.strip().splitlines()) == 7
     assert "lesion_nature" in data.text.splitlines()[0]
+    assert "diagnostic_confidence" in data.text.splitlines()[0]
     assert "malignant" in data.text
 
 
@@ -346,7 +349,7 @@ def test_lesion_nature_required_and_independent_for_visible_lesion(client):
     task_id=next_item["id"]
     assert client.get(f"/api/rct/tasks/{task_id}",headers=doctor).status_code==200
     base={"submission_key":secrets.token_hex(20),"lesion_visible":"yes",
-          "diagnosis":"OTHER","malignancy_risk":3}
+          "diagnosis":"OTHER","malignancy_risk":3,"diagnostic_confidence":3}
     assert client.post(f"/api/rct/tasks/{task_id}/submit",headers=doctor,
                        json=base).status_code==422
     assert client.post(f"/api/rct/tasks/{task_id}/submit",headers=doctor,
@@ -377,12 +380,13 @@ def test_absent_lesion_has_no_nature_diagnosis_or_risk(client):
     task=client.get("/api/rct/tasks/next",headers=doctor).json()["task"]
     assert client.get(f"/api/rct/tasks/{task['id']}",headers=doctor).status_code==200
     response=client.post(f"/api/rct/tasks/{task['id']}/submit",headers=doctor,json={
-        "submission_key":secrets.token_hex(20),"lesion_visible":"no"})
+        "submission_key":secrets.token_hex(20),"lesion_visible":"no","diagnostic_confidence":4})
     assert response.status_code==200,response.text
     with rct.database() as db:
-        result=db.execute("SELECT lesion_nature,diagnosis,malignancy_risk "
+        result=db.execute("SELECT lesion_nature,diagnosis,malignancy_risk,diagnostic_confidence "
                           "FROM rct_results WHERE task_id=?",(task["id"],)).fetchone()
-        assert all(x is None for x in result)
+        assert dict(result)=={"lesion_nature":None,"diagnosis":None,
+                              "malignancy_risk":None,"diagnostic_confidence":4}
 
 
 def test_case_batch_has_authorized_phases_bounded_range_and_index(client):
@@ -438,13 +442,14 @@ def test_uncertain_lesion_presence_allows_optional_followup_judgments(client):
     assert client.get(f"/api/rct/tasks/{task['id']}",headers=doctor).status_code==200
     result=client.post(f"/api/rct/tasks/{task['id']}/submit",headers=doctor,json={
         "submission_key":secrets.token_hex(20),"lesion_visible":"unsure",
-        "lesion_nature":"unsure","diagnosis":"UNSURE","malignancy_risk":3})
+        "lesion_nature":"unsure","diagnosis":"UNSURE","malignancy_risk":3,
+        "diagnostic_confidence":2})
     assert result.status_code==200,result.text
     with rct.database() as db:
-        record=db.execute("SELECT lesion_visible,lesion_nature,diagnosis,malignancy_risk "
+        record=db.execute("SELECT lesion_visible,lesion_nature,diagnosis,malignancy_risk,diagnostic_confidence "
                           "FROM rct_results WHERE task_id=?",(task["id"],)).fetchone()
     assert dict(record)=={"lesion_visible":"unsure","lesion_nature":"unsure",
-                          "diagnosis":"UNSURE","malignancy_risk":3}
+                          "diagnosis":"UNSURE","malignancy_risk":3,"diagnostic_confidence":2}
 
 
 def test_uncertain_lesion_presence_can_submit_without_followup_judgments(client):
@@ -458,7 +463,7 @@ def test_uncertain_lesion_presence_can_submit_without_followup_judgments(client)
     assert task is not None
     assert client.get(f"/api/rct/tasks/{task['id']}",headers=doctor).status_code==200
     result=client.post(f"/api/rct/tasks/{task['id']}/submit",headers=doctor,json={
-        "submission_key":secrets.token_hex(20),"lesion_visible":"unsure"})
+        "submission_key":secrets.token_hex(20),"lesion_visible":"unsure","diagnostic_confidence":1})
     assert result.status_code==200,result.text
 
 
@@ -473,9 +478,28 @@ def test_risk_score_is_optional_for_new_readings(client):
     assert client.get(f"/api/rct/tasks/{task['id']}",headers=doctor).status_code==200
     response=client.post(f"/api/rct/tasks/{task['id']}/submit",headers=doctor,json={
         "submission_key":secrets.token_hex(20),"lesion_visible":"yes",
-        "lesion_nature":"malignant","diagnosis":"HCC"})
+        "lesion_nature":"malignant","diagnosis":"HCC","diagnostic_confidence":5})
     assert response.status_code==200,response.text
     with rct.database() as db:
-        risk=db.execute("SELECT malignancy_risk FROM rct_results WHERE task_id=?",
-                        (task["id"],)).fetchone()[0]
-    assert risk is None
+        row=db.execute("SELECT malignancy_risk,diagnostic_confidence FROM rct_results WHERE task_id=?",
+                       (task["id"],)).fetchone()
+    assert row["malignancy_risk"] is None and row["diagnostic_confidence"]==5
+
+
+def test_diagnostic_confidence_required_and_bounded_across_all_branches(client):
+    administrator=auth(client,"admin","change-this-in-production-12345")
+    populate(client,administrator,count=6)
+    assert client.post("/api/rct/admin/randomize",headers=administrator,
+                       json={"seed":"confidence-check"}).status_code==200
+    assert client.post("/api/rct/admin/publish",headers=administrator).status_code==200
+    doctor=auth(client,"R01","reader-password-12345")
+    task=client.get("/api/rct/tasks/next",headers=doctor).json()["task"]
+    assert client.get(f"/api/rct/tasks/{task['id']}",headers=doctor).status_code==200
+    for bad in [
+        {"submission_key":secrets.token_hex(20),"lesion_visible":"yes","lesion_nature":"benign","diagnosis":"HEM"},
+        {"submission_key":secrets.token_hex(20),"lesion_visible":"no"},
+        {"submission_key":secrets.token_hex(20),"lesion_visible":"unsure"},
+        {"submission_key":secrets.token_hex(20),"lesion_visible":"no","diagnostic_confidence":0},
+        {"submission_key":secrets.token_hex(20),"lesion_visible":"no","diagnostic_confidence":6},
+    ]:
+        assert client.post(f"/api/rct/tasks/{task['id']}/submit",headers=doctor,json=bad).status_code==422

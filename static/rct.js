@@ -870,12 +870,16 @@ el("diagnosis-form").onsubmit=async e=>{
      (!values.lesion_nature||!values.diagnosis)){
     message("存在病灶时，请完成病灶性质与主要疾病类型判断",true);return;
   }
+  if(!values.diagnostic_confidence){
+    message("请完成诊断信心评分",true);return;
+  }
   study.busy=true;el("submit-button").disabled=true;
   const payload={
     submission_key: crypto.randomUUID()+"-"+Date.now(),
     lesion_visible:values.lesion_visible,
     lesion_nature:values.lesion_nature||null,
     diagnosis:values.diagnosis||null,
+    diagnostic_confidence:Number(values.diagnostic_confidence),
     client_active_seconds:Math.max(0,(Date.now()-study.startTime)/1000)
   };
   const id=study.task.id;

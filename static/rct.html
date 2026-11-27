@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>评阅系统</title>
-  <link rel="stylesheet" href="/static/rct.css?v=10">
+  <link rel="stylesheet" href="/static/rct.css?v=11">
 </head>
 <body>
 <header class="topbar">
@@ -180,6 +180,15 @@
               <label class="disease-option"><input type="radio" name="diagnosis" value="OTHER"><span class="disease-name">其他病灶<span class="disease-example">如：钙化灶、肝硬化、胆管结石等</span></span><small>OTHER</small></label>
               <label class="disease-option"><input type="radio" name="diagnosis" value="UNSURE"><span class="disease-name">不确定病灶类型</span><small>UNSURE</small></label>
             </div></fieldset>
+            <fieldset id="confidence-field"><legend>4 · 诊断信心评分（单选）</legend>
+              <div class="choices confidence-choices">
+                <label><input type="radio" name="diagnostic_confidence" value="1" required><span><strong>1分</strong>（极低信心，不能用于诊断）</span></label>
+                <label><input type="radio" name="diagnostic_confidence" value="2"><span><strong>2分</strong>（信心较低，存在较大诊断不确定性）</span></label>
+                <label><input type="radio" name="diagnostic_confidence" value="3"><span><strong>3分</strong>（中等信心，可初步判断）</span></label>
+                <label><input type="radio" name="diagnostic_confidence" value="4"><span><strong>4分</strong>（信心较高，诊断依据较充分）</span></label>
+                <label><input type="radio" name="diagnostic_confidence" value="5"><span><strong>5分</strong>（信心非常高，诊断依据充分）</span></label>
+              </div>
+            </fieldset>
             <button type="submit" id="submit-button">提交并进入下一例</button>
             
           </form>
@@ -189,5 +198,5 @@
   </section>
   <div id="notification" role="status" aria-live="polite"></div>
 </main>
-<script src="/static/rct.js?v=21" defer></script>
+<script src="/static/rct.js?v=22" defer></script>
 </body></html>

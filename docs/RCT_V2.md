@@ -134,6 +134,7 @@ Existing legacy APIs remain for backwards compatibility, but the admin UI presen
 - `lesion_visible = yes`: explicitly choose an independent `lesion_nature` (`benign`, `malignant`, or `unsure`), the most likely diagnosis type, without an additional malignancy risk score. Nature and diagnosis are recorded independently.
 - `lesion_visible = no`: nature and diagnosis are disabled and saved as NULL.
 - `lesion_visible = unsure`: existence is uncertain; nature and diagnosis remain enabled but optional. Selected values are saved as entered; unselected fields stay NULL.
+- `diagnostic_confidence` (1–5): always enabled and required for every submission (`yes`, `no`, or `unsure`), representing overall diagnostic confidence (1 = 极低信心，不能用于诊断 … 5 = 信心非常高，诊断依据充分). Added non-destructively to `rct_results` (legacy submissions retain NULL) and included in locked and archived CSV exports.
 - The malignancy risk question (including 1–5 choices) has been removed. Legacy `malignancy_risk` values remain stored and exportable, while new UI submissions leave this field NULL.
 - Specific subtype `OTHER` should be interpreted alongside the **independently recorded** nature. Findings such as cirrhosis or biliary stones are not necessarily focal hepatic lesions; protocol inclusion and classification must be specified prospectively.
 - `rct_results.lesion_nature` is added to existing SQLite databases without losing legacy submissions. Prior diagnoses are left NULL, not guessed from risk or subtype. Current locked CSV exports and early-end archives include the field.

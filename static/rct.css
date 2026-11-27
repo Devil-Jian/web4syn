@@ -62,3 +62,6 @@
 .nature-choices label{justify-content:center;white-space:nowrap;padding:10px 5px}
 .risk-scale-hint{margin:0 0 8px;color:#678197;font-size:11px;line-height:1.5;text-align:center}
 #nature-field:disabled,#diagnosis-field:disabled,#risk-field:disabled{opacity:.48}
+.confidence-choices{flex-direction:column;gap:6px}
+.confidence-choices label{display:grid;grid-template-columns:16px minmax(0,1fr);align-items:start;column-gap:8px;padding:8px 10px;font-size:12.5px;line-height:1.45}
+.confidence-choices input{margin:2px 0 0}
