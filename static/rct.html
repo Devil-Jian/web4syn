@@ -77,7 +77,7 @@
       </article>
       <article class="card wide">
         <h2>② 选择患者（默认全选，按需排除）</h2>
-        <p class="hint">自动扫描 /dataset/RCTs/data_h5_v2；只建立文件索引，不执行影像质量检查。源文件保持只读。</p>
+        <p class="hint">自动扫描全肝影像数据（合成增强 /dataset/RCTs/data_h5_isb_v4 + 配套平扫/真实增强 /dataset/RCTs/data_h5_v2_full_liver）；全部分类全部加载，不做病灶截取，源文件保持只读。</p>
         <div class="dataset-toolbar">
           <button id="dataset-scan" class="quiet">重新扫描目录</button>
           <span id="dataset-scan-status" class="hint">等待扫描状态</span>

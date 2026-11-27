@@ -303,3 +303,28 @@ def test_hdf5_batch_renderer_supports_both_cect_layouts(setup):
         h5_source.render_batch("DCHW.h5","real_cect",["NCCT","AP"],0,13)
     with pytest.raises(IndexError):
         h5_source.render_batch("DCHW.h5","real_cect",["NCCT","AP"],3,5)
+
+
+def test_split_syn_root_scan_includes_all_categories_and_validates_depth(setup, tmp_path, monkeypatch):
+    client, auth, root = setup
+    syn_root = tmp_path / "syn_packs"
+    syn_root.mkdir()
+    monkeypatch.setattr(h5_source, "SYN_ROOT", syn_root.resolve())
+    for idx, (label, depth) in enumerate([("恶性", 10), ("良性", 8), ("正常", 12)]):
+        name = f"FULL{idx}.h5"
+        pack(root / name, label, depth=depth)
+        with h5py.File(syn_root / name, "w") as sf:
+            sf.create_dataset("syn_cect", shape=(depth, 3, 512, 512), dtype="f2")
+            sf.create_dataset("pred_spatial_gate", shape=(depth, 512, 512), dtype="u1")
+    # One mismatched file should be flagged unreadable instead of silently included.
+    pack(root / "BAD0.h5", "正常", depth=10)
+    with h5py.File(syn_root / "BAD0.h5", "w") as sf:
+        sf.create_dataset("syn_cect", shape=(7, 3, 512, 512), dtype="f2")
+
+    assert dataset_manager.run_scan()
+    status = client.get("/api/rct/admin/dataset/status", headers=auth).json()
+    assert status["counts"]["total"] == 4
+    assert status["counts"]["included"] == 3
+    assert status["counts"]["unreadable"] == 1
+    items = client.get("/api/rct/admin/dataset/files?filter=included", headers=auth).json()["items"]
+    assert {(x["label_type"], x["depth"]) for x in items} == {("恶性", 10), ("良性", 8), ("正常", 12)}

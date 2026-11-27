@@ -11,6 +11,7 @@ services:
     environment:
       WEB4SYN_DATA: /app/data
       WEB4SYN_PACKS_ROOT: /packs
+      WEB4SYN_SYN_PACKS_ROOT: /packs_syn
       WEB4SYN_RCT_ADMIN_PASSWORD: ${WEB4SYN_RCT_ADMIN_PASSWORD:?Set_a_12_character_or_longer_admin_password_in_dot_env}
       WEB4SYN_ENABLE_LEGACY_DEMO: "0"
       WEB4SYN_RCT_ALLOW_TEST_RESET: ${WEB4SYN_RCT_ALLOW_TEST_RESET:-0}
@@ -21,8 +22,12 @@ services:
         source: ${WEB4SYN_DATA_PATH:-/var/lib/web4syn}
         target: /app/data
       - type: bind
-        source: ${WEB4SYN_PACKS_PATH:-/dataset/RCTs/data_h5_v2}
+        source: ${WEB4SYN_PACKS_PATH:-/dataset/RCTs/data_h5_v2_full_liver}
         target: /packs
+        read_only: true
+      - type: bind
+        source: ${WEB4SYN_SYN_PACKS_PATH:-/dataset/RCTs/data_h5_isb_v4}
+        target: /packs_syn
         read_only: true
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/rct', timeout=4)"]

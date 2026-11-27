@@ -5,6 +5,7 @@ Supported CECT arrangements:
 - legacy: [3, D, H, W] (AP/PVP/DP, slice, Y, X)
 Only a single requested slice is read; volumes and source paths are never exposed.
 """
+from contextlib import ExitStack
 from pathlib import Path
 import io
 import os
@@ -13,6 +14,8 @@ import numpy as np
 from PIL import Image
 
 ROOT = Path(os.getenv("WEB4SYN_PACKS_ROOT", "/packs")).resolve()
+_SYN_ENV = os.getenv("WEB4SYN_SYN_PACKS_ROOT", "").strip()
+SYN_ROOT = Path(_SYN_ENV).resolve() if _SYN_ENV else None
 PHASES = ("AP", "PVP", "DP")
 DATASETS = {"NCCT": "ncct", "REAL": "real_cect", "VIRTUAL": "syn_cect"}
 
@@ -26,14 +29,15 @@ def patient_files():
     )
 
 
-def resolve_h5(filename):
+def resolve_h5(filename, root=None):
+    base = ROOT if root is None else root
     if (not isinstance(filename, str) or
         Path(filename).name != filename or
         filename in (".", "..") or
         not filename.endswith(".h5")):
         raise ValueError("Invalid HDF5 filename")
-    path = (ROOT / filename).resolve()
-    if path.parent != ROOT or not path.is_file():
+    path = (base / filename).resolve()
+    if path.parent != base or not path.is_file():
         raise ValueError("HDF5 file unavailable")
     if path.is_symlink():
         raise ValueError("Symlink HDF5 files are not allowed")
@@ -52,7 +56,18 @@ def _cect_layout(ds, depth, height, width):
     )
 
 
-def _validate(f):
+def _cect_shape_info(ds):
+    shape = ds.shape
+    if ds.ndim != 4 or shape[2:] != (512, 512):
+        raise ValueError(f"Invalid {ds.name} shape {shape}")
+    if shape[1] == 3 and shape[0] >= 1:
+        return "DCHW", int(shape[0])
+    if shape[0] == 3 and shape[1] >= 1:
+        return "CDHW", int(shape[1])
+    raise ValueError(f"Invalid {ds.name} shape {shape}")
+
+
+def _validate(f, syn_file=None):
     if "ncct" not in f:
         raise ValueError("Missing ncct dataset")
     ncct = f["ncct"]
@@ -63,9 +78,10 @@ def _validate(f):
         raise ValueError("Invalid NCCT shape; expected [D,512,512]")
     layouts = {}
     for name in ("real_cect", "syn_cect"):
-        if name not in f or not isinstance(f[name], h5py.Dataset):
+        src = syn_file if (name == "syn_cect" and syn_file is not None) else f
+        if name not in src or not isinstance(src[name], h5py.Dataset):
             raise ValueError(f"Missing {name} dataset")
-        layouts[name] = _cect_layout(f[name], depth, height, width)
+        layouts[name] = _cect_layout(src[name], depth, height, width)
 
     for name in ("liver_mask", "tumor_mask"):
         if name in f and f[name].shape != (depth, height, width):
@@ -83,8 +99,12 @@ def describe(path):
     A representative slice is selected using the liver label 5 if present.
     If label 5 is absent, falls back to nonzero mask voxels.
     """
-    with h5py.File(path, "r") as f:
-        depth, _ = _validate(f)
+    with ExitStack() as stack:
+        f = stack.enter_context(h5py.File(path, "r"))
+        syn_file = None
+        if SYN_ROOT is not None:
+            syn_file = stack.enter_context(h5py.File(resolve_h5(Path(path).name, SYN_ROOT), "r"))
+        depth, _ = _validate(f, syn_file=syn_file)
         middle = depth // 2
         if "liver_mask" in f:
             mask = f["liver_mask"]
@@ -128,21 +148,30 @@ def render(image_ref, lo=-160.0, hi=240.0):
         dataset != "ncct" and phase == "NCCT"):
         raise ValueError("Mismatched dataset and phase")
     index = int(z_text)
-    with h5py.File(resolve_h5(filename), "r") as f:
-        ncct = f["ncct"]
-        depth, height, width = ncct.shape
-        if index < 0 or index >= depth:
-            raise IndexError("Slice index out of range")
-        if dataset == "ncct":
-            image = np.asarray(ncct[index, :, :], dtype=np.float32)
-        else:
-            arr = f[dataset]
-            layout = _cect_layout(arr, depth, height, width)
+    if dataset == "syn_cect" and SYN_ROOT is not None:
+        with h5py.File(resolve_h5(filename, SYN_ROOT), "r") as f:
+            arr = f["syn_cect"]
+            layout, depth = _cect_shape_info(arr)
+            if index < 0 or index >= depth:
+                raise IndexError("Slice index out of range")
             channel = PHASES.index(phase)
-            if layout == "DCHW":
-                image = np.asarray(arr[index, channel, :, :], dtype=np.float32)
+            image = np.asarray(arr[index, channel, :, :] if layout == "DCHW" else arr[channel, index, :, :], dtype=np.float32)
+    else:
+        with h5py.File(resolve_h5(filename), "r") as f:
+            ncct = f["ncct"]
+            depth, height, width = ncct.shape
+            if index < 0 or index >= depth:
+                raise IndexError("Slice index out of range")
+            if dataset == "ncct":
+                image = np.asarray(ncct[index, :, :], dtype=np.float32)
             else:
-                image = np.asarray(arr[channel, index, :, :], dtype=np.float32)
+                arr = f[dataset]
+                layout = _cect_layout(arr, depth, height, width)
+                channel = PHASES.index(phase)
+                if layout == "DCHW":
+                    image = np.asarray(arr[index, channel, :, :], dtype=np.float32)
+                else:
+                    image = np.asarray(arr[channel, index, :, :], dtype=np.float32)
     image = np.nan_to_num(image, nan=lo, posinf=hi, neginf=lo)
     pixels = np.clip((image - lo) * (255.0 / (hi - lo)), 0, 255).astype(np.uint8)
     buf = io.BytesIO()
@@ -151,7 +180,7 @@ def render(image_ref, lo=-160.0, hi=240.0):
 
 
 def render_batch(filename, dataset, phases, start, end, lo=-160.0, hi=240.0):
-    """Render a bounded half-open slice interval, opening the HDF5 pack once.
+    """Render a bounded half-open slice interval, opening each HDF5 pack once.
 
     Returns (phase, z, png_bytes) tuples. The caller must authorize phases
     and the patient before invoking this function.
@@ -172,7 +201,8 @@ def render_batch(filename, dataset, phases, start, end, lo=-160.0, hi=240.0):
         raise ValueError("Invalid phase")
 
     results = []
-    with h5py.File(resolve_h5(filename), "r") as f:
+    with ExitStack() as stack:
+        f = stack.enter_context(h5py.File(resolve_h5(filename), "r"))
         ncct = f["ncct"]
         depth, height, width = ncct.shape
         if end > depth:
@@ -182,7 +212,11 @@ def render_batch(filename, dataset, phases, start, end, lo=-160.0, hi=240.0):
         if any(phase != "NCCT" for phase in phases):
             if dataset == "ncct":
                 raise ValueError("CECT requires real or synthetic dataset")
-            ce = f[dataset]
+            if dataset == "syn_cect" and SYN_ROOT is not None:
+                syn_f = stack.enter_context(h5py.File(resolve_h5(filename, SYN_ROOT), "r"))
+                ce = syn_f["syn_cect"]
+            else:
+                ce = f[dataset]
             layout = _cect_layout(ce, depth, height, width)
         for z in range(start, end):
             for phase in phases:

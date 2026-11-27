@@ -59,3 +59,42 @@ def test_invalid_shape_rejected(tmp_path):
         f.create_dataset("real_cect", shape=(5,2,512,512), dtype="f2")
     with pytest.raises(ValueError,match="Invalid"):
         h5_source.describe(filename)
+
+
+def test_split_syn_root_reads_syn_cect_from_separate_dir(tmp_path, monkeypatch):
+    base_root = tmp_path / "base"
+    syn_root = tmp_path / "syn"
+    base_root.mkdir()
+    syn_root.mkdir()
+    monkeypatch.setattr(h5_source, "ROOT", base_root.resolve())
+    monkeypatch.setattr(h5_source, "SYN_ROOT", syn_root.resolve())
+    depth = 6
+    with h5py.File(base_root / "case1.h5", "w") as f:
+        f.create_dataset("ncct", shape=(depth, 512, 512), dtype="f2", fillvalue=20)
+        f.create_dataset("real_cect", shape=(depth, 3, 512, 512), dtype="f2", fillvalue=40)
+        f.create_dataset("syn_cect", shape=(depth, 3, 512, 512), dtype="f2", fillvalue=0)
+    # Synthetic-only pack matching data_h5_isb_v4 schema (no ncct or real_cect).
+    with h5py.File(syn_root / "case1.h5", "w") as f:
+        f.create_dataset("syn_cect", shape=(depth, 3, 512, 512), dtype="f2", fillvalue=120)
+        f.create_dataset("pred_spatial_gate", shape=(depth, 512, 512), dtype="u1")
+
+    assert h5_source.describe(base_root / "case1.h5")[0] == depth
+    syn_png = h5_source.render(h5_source.encode("case1.h5", "syn_cect", 5, "AP"))
+    expected_syn = int(np.uint8(np.clip((120 + 160) * 255.0 / 400.0, 0, 255)))
+    with Image.open(io.BytesIO(syn_png)) as img:
+        assert img.getpixel((10, 10)) == expected_syn
+
+    batch = dict(((p, z), raw) for p, z, raw in h5_source.render_batch(
+        "case1.h5", "syn_cect", ["NCCT", "AP", "PVP", "DP"], 0, depth))
+    assert len(batch) == depth * 4
+    expected_ncct = int(np.uint8(np.clip((20 + 160) * 255.0 / 400.0, 0, 255)))
+    with Image.open(io.BytesIO(batch[("NCCT", 0)])) as img:
+        assert img.getpixel((10, 10)) == expected_ncct
+    with Image.open(io.BytesIO(batch[("DP", depth - 1)])) as img:
+        assert img.getpixel((10, 10)) == expected_syn
+
+    # Depth mismatch in synthetic pack must be rejected.
+    with h5py.File(syn_root / "case1.h5", "w") as f:
+        f.create_dataset("syn_cect", shape=(depth - 1, 3, 512, 512), dtype="f2", fillvalue=120)
+    with pytest.raises(ValueError, match="Invalid"):
+        h5_source.render_batch("case1.h5", "syn_cect", ["NCCT", "AP"], 0, 2)

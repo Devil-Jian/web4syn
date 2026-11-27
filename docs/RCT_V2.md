@@ -23,7 +23,7 @@ Linux server with Docker Compose and read-only HDF5 packs. Each pack must contai
 - optional liver_mask and tumor_mask: [D,512,512] uint8; liver label 5 is used to select a representative slice, never shown to readers.
 - optional root attributes: patient_id, crop_z_start, crop_z_end, spacing_xyz, label_type; diagnostic labels are not exposed to readers.
 
-All 3 phases are ordered AP / PVP / DP. Server indexes the newer format as f[dataset][z,phase,:,:] and the legacy format as f[dataset][phase,z,:,:]. The root directory on the host defaults to /dataset/RCTs/data_h5_v2, mounted read-only into /packs. Only individual 2D slices are read. The viewer assumes anatomical alignment upstream. Each pack file basename and patient code must be pseudonymous and contain no directly identifying information.
+All 3 phases are ordered AP / PVP / DP. Server indexes the newer format as f[dataset][z,phase,:,:] and the legacy format as f[dataset][phase,z,:,:]. By default, full-liver `ncct` and `real_cect` are mounted read-only from `/dataset/RCTs/data_h5_v2_full_liver` into `/packs`, and ISB v4 `syn_cect` is mounted read-only from `/dataset/RCTs/data_h5_isb_v4` into `/packs_syn` (`WEB4SYN_SYN_PACKS_ROOT`). Every slice in each pack is loaded without lesion-based cropping, and all categories (`label_type`) are included by default. Only individual 2D slices are read. The viewer assumes anatomical alignment upstream. Each pack file basename and patient code must be pseudonymous and contain no directly identifying information.
 
 ## Install
 
@@ -65,7 +65,7 @@ For replacing a reader with assigned tasks, do not disable the account or silent
 
 ## Automated patient dataset management (v2.2)
 
-HDF5 root: `/dataset/RCTs/data_h5_v2` on host, mounted read-only at `/packs` in the container. Set `WEB4SYN_PACKS_PATH` in your existing local `.env` file (changes to `.env.example` do not update `.env`).
+HDF5 roots: `/dataset/RCTs/data_h5_v2_full_liver` (full-liver `ncct` / `real_cect`, mounted read-only at `/packs`) paired with `/dataset/RCTs/data_h5_isb_v4` (`syn_cect`, mounted read-only at `/packs_syn`). Set `WEB4SYN_PACKS_PATH` and `WEB4SYN_SYN_PACKS_PATH` in your existing local `.env` file (changes to `.env.example` do not update `.env`). All categories (`恶性`, `良性`, `正常`, or unlabeled) and all slices in each volume are indexed and exposed without lesion-based cropping.
 
 - On app startup, a background scan enumerates immediate `.h5` children (non-recursive); admin can manually rescan.
 - Scan stores filename, anonymous patient code based on filename stem, optional `label_type` and `spacing_xyz` attributes, NCCT dataset depth, size and mtime.
@@ -114,7 +114,7 @@ Important: This feature ends an active `published` round even when the task coun
 
 The administrator no longer needs to configure target sample size, set a randomization seed, freeze the cohort separately, or press a second Publish button. The main admin panel now shows **一键分配并发布任务** with readiness checks.
 
-1. Automatic HDF5 indexing populates the candidate list from `/dataset/RCTs/data_h5_v2`; exclude only unsuitable files.
+1. Automatic HDF5 indexing populates the candidate list from `/dataset/RCTs/data_h5_v2_full_liver` + `/dataset/RCTs/data_h5_isb_v4`; exclude only unsuitable files.
 2. Ensure 6–9 readers are enabled. The panel reports the included-case and enabled-doctor totals and lists any blocking issues.
 3. Click **一键分配并发布任务**, then confirm the exact counts once. The server performs cohort freeze, 1:1:1 allocation, and publication **in a single SQLite transaction**. It automatically sets the research target to the included cohort size.
 4. Existing **frozen** studies can also use this button; a prior randomized-but-unpublished study may publish its existing tasks without rerandomizing.

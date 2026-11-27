@@ -93,10 +93,20 @@ def _metadata(path):
     """Minimal index metadata only: no pixel reads or image quality checks."""
     try:
         with h5py.File(path, "r") as f:
-            if "ncct" not in f or not isinstance(f["ncct"], h5py.Dataset):
+            if "ncct" not in f or not isinstance(f["ncct"], h5py.Dataset) or f["ncct"].ndim != 3:
                 return None, None, None, "NCCT metadata unavailable"
-            depth = int(f["ncct"].shape[0]) if f["ncct"].ndim else None
-            return depth, _short_attr(f.attrs, "label_type"), _short_attr(f.attrs, "spacing_xyz"), None
+            depth, height, width = (int(n) for n in f["ncct"].shape)
+            label = _short_attr(f.attrs, "label_type")
+            spacing = _short_attr(f.attrs, "spacing_xyz")
+        if h5_source.SYN_ROOT is not None:
+            syn_path = h5_source.resolve_h5(path.name, h5_source.SYN_ROOT)
+            with h5py.File(syn_path, "r") as sf:
+                if "syn_cect" not in sf or not isinstance(sf["syn_cect"], h5py.Dataset):
+                    return None, label, spacing, "Synthetic CECT metadata unavailable"
+                h5_source._cect_layout(sf["syn_cect"], depth, height, width)
+                if label is None:
+                    label = _short_attr(sf.attrs, "label_type")
+        return depth, label, spacing, None
     except (OSError, ValueError, KeyError, TypeError) as exc:
         return None, None, None, f"Metadata unreadable: {str(exc)[:120]}"
 
@@ -111,6 +121,9 @@ def run_scan():
         root = h5_source.ROOT
         if not root.is_dir():
             raise FileNotFoundError(f"HDF5 root is missing: {root}")
+        syn_root = h5_source.SYN_ROOT
+        if syn_root is not None and not syn_root.is_dir():
+            raise FileNotFoundError(f"Synthetic HDF5 root is missing: {syn_root}")
         filenames = h5_source.patient_files()
         discovered = set()
         scanned = 0
@@ -124,10 +137,20 @@ def run_scan():
                 continue
             discovered.add(filename)
             stat = path.stat()
+            file_size = stat.st_size
+            mtime_ns = stat.st_mtime_ns
+            if syn_root is not None:
+                syn_candidate = syn_root / filename
+                if syn_candidate.is_file() and not syn_candidate.is_symlink():
+                    syn_stat = syn_candidate.stat()
+                    file_size += syn_stat.st_size
+                    mtime_ns = max(mtime_ns, syn_stat.st_mtime_ns)
+                else:
+                    mtime_ns = 0
             with database() as c:
                 old = c.execute("SELECT id,file_size,mtime_ns,error FROM rct_source_files WHERE filename=?",
                                 (filename,)).fetchone()
-            if old and old["file_size"] == stat.st_size and old["mtime_ns"] == stat.st_mtime_ns and old["error"] is None:
+            if old and old["file_size"] == file_size and old["mtime_ns"] == mtime_ns and old["error"] is None:
                 with database() as c:
                     c.execute("UPDATE rct_source_files SET missing=0,updated_at=? WHERE filename=?", (now, filename))
                 scanned += 1
@@ -145,7 +168,7 @@ def run_scan():
                    spacing_xyz=excluded.spacing_xyz,file_size=excluded.file_size,
                    mtime_ns=excluded.mtime_ns,error=excluded.error,
                    missing=0,updated_at=excluded.updated_at""",
-                  (filename, code, depth, label, spacing, stat.st_size, stat.st_mtime_ns,
+                  (filename, code, depth, label, spacing, file_size, mtime_ns,
                    error, now, now))
             scanned += 1
         # Never delete excluded decisions or already published/frozen study patients.
@@ -199,7 +222,9 @@ def dataset_status(user=Depends(admin)):
           SUM(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END) AS unreadable
           FROM rct_source_files""").fetchone())
         status = study(c)["status"]
-    return {"scan": state, "counts": counts, "study_status": status, "root": str(h5_source.ROOT)}
+    return {"scan": state, "counts": counts, "study_status": status,
+            "root": str(h5_source.ROOT),
+            "syn_root": str(h5_source.SYN_ROOT) if h5_source.SYN_ROOT is not None else None}
 
 
 @router.post("/scan")
